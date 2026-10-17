@@ -44,6 +44,7 @@
 #include <qsynedit/syntaxer/nasm.h>
 #include <qsynedit/exporter/rtfexporter.h>
 #include <qsynedit/exporter/htmlexporter.h>
+#include <qsynedit/exporter/imageexporter.h>
 #include <qsynedit/exporter/qtsupportedhtmlexporter.h>
 #include <qsynedit/constants.h>
 #include "systemconsts.h"
@@ -3229,6 +3230,22 @@ void Editor::exportAsHTML(const QString &htmlFilename)
     }
     exporter.exportAll(document());
     exporter.saveToFile(htmlFilename);
+}
+
+void Editor::exportAsImage(const QString &imageFilename)
+{
+    Q_ASSERT(mColorManager!=nullptr);
+
+    QSynedit::ImageExporter exporter(tabSize(), pCharsetInfoManager->getDefaultSystemEncoding());
+    exporter.setFont(font());
+    exporter.setBackgroundColor(backgroundColor());
+    exporter.setForegroundColor(foregroundColor());
+    exporter.setUseBackground(true);
+    exporter.setLineNumberStartFromZero(mEditorSettings->gutterLineNumbersStartZero());
+    QSynedit::PSyntaxer pSyntaxer = syntaxer()->createInstance();
+    mColorManager->applySchemeToSyntaxer(pSyntaxer, mEditorSettings->colorScheme());
+    exporter.setSyntaxer(pSyntaxer);
+    exporter.saveToImage(document(), imageFilename);
 }
 
 void Editor::showCompletion(const QString& preWord,bool autoComplete, CodeCompletionType type)

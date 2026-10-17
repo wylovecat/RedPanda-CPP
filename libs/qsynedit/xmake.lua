@@ -17,6 +17,7 @@ target("qsynedit")
         -- exporter
         "qsynedit/exporter/exporter.cpp",
         "qsynedit/exporter/htmlexporter.cpp",
+        "qsynedit/exporter/imageexporter.cpp",
         "qsynedit/exporter/qtsupportedhtmlexporter.cpp",
         "qsynedit/exporter/rtfexporter.cpp",
         -- formatter

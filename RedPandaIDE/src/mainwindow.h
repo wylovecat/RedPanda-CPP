@@ -634,6 +634,7 @@ private slots:
     void on_actionExport_As_RTF_triggered();
 
     void on_actionExport_As_HTML_triggered();
+    void on_actionExport_As_Image_triggered();
 
     void on_actionMove_To_Other_View_triggered();
 

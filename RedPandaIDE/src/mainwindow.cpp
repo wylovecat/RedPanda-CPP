@@ -273,6 +273,7 @@ MainWindow::MainWindow(QWidget *parent)
     mMenuExport = new QMenu(tr("Export"));
     mMenuExport->addAction(ui->actionExport_As_RTF);
     mMenuExport->addAction(ui->actionExport_As_HTML);
+    mMenuExport->addAction(ui->actionExport_As_Image);
     ui->menuFile->insertMenu(ui->actionPrint,mMenuExport);
 
     buildEncodingMenu();
@@ -639,6 +640,7 @@ void MainWindow::updateEditorActions(const Editor *e)
         ui->actionSaveAs->setEnabled(false);
         ui->actionExport_As_HTML->setEnabled(false);
         ui->actionExport_As_RTF->setEnabled(false);
+        ui->actionExport_As_Image->setEnabled(false);
         ui->actionPrint->setEnabled(false);
         ui->actionToggleComment->setEnabled(false);
         ui->actionToggle_Block_Comment->setEnabled(false);
@@ -727,6 +729,7 @@ void MainWindow::updateEditorActions(const Editor *e)
         ui->actionSaveAs->setEnabled(true);
         ui->actionExport_As_HTML->setEnabled(true);
         ui->actionExport_As_RTF->setEnabled(true);
+        ui->actionExport_As_Image->setEnabled(true);
         ui->actionPrint->setEnabled(true);
         ui->actionToggleComment->setEnabled(!e->readOnly() && e->lineCount()>0);
         ui->actionToggle_Block_Comment->setEnabled(!e->readOnly() && e->selAvail());
@@ -8805,6 +8808,29 @@ void MainWindow::on_actionExport_As_HTML_triggered()
         return;
     try {
         editor->exportAsHTML(htmlFile);
+    } catch (FileError e) {
+        QMessageBox::critical(editor,
+                              tr("Error"),
+                              e.reason());
+    }
+}
+
+void MainWindow::on_actionExport_As_Image_triggered()
+{
+    Editor * editor = mEditorManager->getEditor();
+    if (!editor)
+        return;
+    QString imageFile = QFileDialog::getSaveFileName(editor,
+                                 tr("Export As Image"),
+                                 extractFilePath(editor->filename()),
+                                 tr("PNG Image (*.png);;JPEG Image (*.jpg);;BMP Image (*.bmp)")
+                                 );
+    if (imageFile.isEmpty())
+        return;
+    if (QFileInfo(imageFile).suffix().isEmpty())
+        imageFile += ".png";
+    try {
+        editor->exportAsImage(imageFile);
     } catch (FileError e) {
         QMessageBox::critical(editor,
                               tr("Error"),

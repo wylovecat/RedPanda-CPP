@@ -216,6 +216,7 @@ public:
     void print();
     void exportAsRTF(const QString& rtfFilename);
     void exportAsHTML(const QString& htmlFilename);
+    void exportAsImage(const QString& imageFilename);
     void resetBreakpoints(BreakpointModel *model);
     bool notParsed();
     void breakLine();

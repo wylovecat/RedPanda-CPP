@@ -12,6 +12,7 @@ set(QSYNEDIT_QT_PLAIN_CPP
     # exporter
     qsynedit/exporter/exporter
     qsynedit/exporter/htmlexporter
+    qsynedit/exporter/imageexporter
     qsynedit/exporter/qtsupportedhtmlexporter
     qsynedit/exporter/rtfexporter
     # formatter
