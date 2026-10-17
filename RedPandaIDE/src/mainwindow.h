@@ -76,6 +76,7 @@ class ColorSchemeItem;
 class VisitHistoryManager;
 class ColorManager;
 class IconsManager;
+class AscHandler;
 
 #define DPI_CHANGED_EVENT ((QEvent::Type)(QEvent::User+1))
 
@@ -148,6 +149,18 @@ public:
             RunType runType,
             const QStringList& binDirs);
     void runExecutable(RunType runType = RunType::Normal);
+
+    /**
+     * Add a problem to the current problem set, giving it a unique name when
+     * the set already holds one with the same title.
+     */
+    bool addProblemToProblemSet(const POJProblem& problem);
+
+    /** Show the problem set page, select this problem and open its answer file. */
+    void selectProblemInProblemSet(const POJProblem& problem);
+
+    /** Compile the current target and run it against every case of the selected problem. */
+    void runSelectedProblemCases();
     void debug();
     void showSearchPanel(bool showReplace = false);
     void showCPUInfoDialog();
@@ -184,6 +197,18 @@ public:
     Debugger *debugger() const;
 
     EditorManager *editorManager() const;
+
+    /** Bring the aisichuang page of the explorer dock to the front. */
+    void showAisichuangPanel();
+
+    /** Keep the aisichuang menu actions in step with the login state. */
+    void updateAisichuangActions();
+
+    /** Push the Options - Aisichuang values into the live client. */
+    void applyAisichuangSettings();
+
+    /** Language names the site accepts for submissions. */
+    QStringList aisichuangLanguages() const;
 
     SearchInFileDialog *searchInFilesDialog() const;
 
@@ -978,6 +1003,10 @@ private:
     bool mOpenningFiles;
     bool mSystemTurnedOff;
     CompetitiveCompanionHandler mCCHandler;
+
+    /** aisichuang.net integration: client, login state, dock page. */
+    AscHandler *mAisichuang;
+    QWidget *mAisichuangPanel;
     QColor mErrorColor;
     CompileIssuesState mCompileIssuesState;
 
@@ -1062,6 +1091,13 @@ private:
 
     QAction * mProblem_RunCurrentCase;
     QAction * mProblem_RunAllCases;
+
+    QAction * mAisichuang_ShowPanel;
+    QAction * mAisichuang_Login;
+    QAction * mAisichuang_Logout;
+    QAction * mAisichuang_RefreshProblem;
+    QAction * mAisichuang_RunSamples;
+    QAction * mAisichuang_Submit;
     QAction * mProblem_batchSetCases;
 
     //action for tools output

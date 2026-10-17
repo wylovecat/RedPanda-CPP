@@ -29,6 +29,7 @@
 #include "settings/executorsettings.h"
 #include "settings/languagesettings.h"
 #include "settings/uisettings.h"
+#include "aisichuang/ascsettings.h"
 #ifdef ENABLE_VCS
 #include "settings/vcssettings.h"
 #endif
@@ -74,6 +75,7 @@ public:
     VCS &vcs();
 #endif
     LanguageSettings &languages();
+    AscSettings &aisichuang();
     QString filename() const;
 
 private:
@@ -93,6 +95,7 @@ private:
     VCSSetting mVCS;
 #endif
     LanguageSettings mLanguages;
+    AscSettings mAsc;
 };
 
 extern Settings* pSettings;

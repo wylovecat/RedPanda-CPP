@@ -58,7 +58,8 @@ Settings::Settings(const QString &filename):
 #ifdef ENABLE_VCS
     mVCS{&mPersistor},
 #endif
-    mLanguages{&mPersistor}
+    mLanguages{&mPersistor},
+    mAsc{&mPersistor}
 {
     //load();
 }
@@ -79,6 +80,7 @@ void Settings::load()
     mVCS.load();
 #endif
     mLanguages.load();
+    mAsc.load();
 }
 
 QSettings::Status Settings::sync()
@@ -120,6 +122,11 @@ QString Settings::filename() const
 LanguageSettings &Settings::languages()
 {
     return mLanguages;
+}
+
+AscSettings &Settings::aisichuang()
+{
+    return mAsc;
 }
 
 CodeCompletionSettings &Settings::codeCompletion()

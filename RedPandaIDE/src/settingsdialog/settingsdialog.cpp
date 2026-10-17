@@ -41,6 +41,7 @@
 #include "environmentprogramswidget.h"
 #include "executorgeneralwidget.h"
 #include "executorproblemsetwidget.h"
+#include "ascoptionswidget.h"
 #include "debuggeneralwidget.h"
 #include "formattergeneralwidget.h"
 #include "formatterpathwidget.h"
@@ -225,6 +226,9 @@ PSettingsDialog SettingsDialog::optionDialog(ColorManager *colorManager, IconsMa
     dialog->addWidget(widget);
 
     widget = new ExecutorProblemSetWidget(tr("Problem Set"),tr("Program Runner"),iconsManager);
+    dialog->addWidget(widget);
+
+    widget = new AscOptionsWidget(tr("Aisichuang"),tr("Aisichuang"),iconsManager);
     dialog->addWidget(widget);
 
     widget = new DebugGeneralWidget(tr("General"),tr("Debugger"),iconsManager);

@@ -104,6 +104,9 @@
 
 #include "widgets/newprojectunitdialog.h"
 #include "widgets/searchinfiledialog.h"
+#include "aisichuang/aschandler.h"
+#include "aisichuang/ascpanelwidget.h"
+#include "aisichuang/ascproblemlinks.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -414,6 +417,12 @@ MainWindow::MainWindow(QWidget *parent)
                              tr("Error"),
                              e.reason());
     }
+
+    // aisichuang.net teaching site integration
+    mAisichuang = new AscHandler(this);
+    mAisichuangPanel = mAisichuang->panel();
+    ui->tabExplorer->addTab(mAisichuangPanel, tr("Aisichuang"));
+    ui->statusbar->addPermanentWidget(mAisichuang->statusButton());
 
 
     //files view
@@ -3087,6 +3096,67 @@ void MainWindow::createCustomActions()
                 tr("Problem"));
     connect(mProblem_batchSetCases, &QAction::triggered, this,
             &MainWindow::onProblemBatchSetCases);
+
+    // aisichuang.net
+    mAisichuang_ShowPanel = createGlobalAction(
+                tr("Show Aisichuang Panel"),
+                "Aisichuang_ShowPanel",
+                tr("Aisichuang"));
+    connect(mAisichuang_ShowPanel, &QAction::triggered, this,
+            &MainWindow::showAisichuangPanel);
+
+    mAisichuang_Login = createGlobalAction(
+                tr("Log In to Aisichuang"),
+                "Aisichuang_Login",
+                tr("Aisichuang"));
+    connect(mAisichuang_Login, &QAction::triggered, this, [this](){
+        mAisichuang->showLogin();
+    });
+
+    mAisichuang_Logout = createGlobalAction(
+                tr("Log Out of Aisichuang"),
+                "Aisichuang_Logout",
+                tr("Aisichuang"));
+    connect(mAisichuang_Logout, &QAction::triggered, this, [this](){
+        mAisichuang->logout();
+    });
+
+    mAisichuang_RefreshProblem = createGlobalAction(
+                tr("Re-download Statement and Samples"),
+                "Aisichuang_RefreshProblem",
+                tr("Aisichuang"));
+    connect(mAisichuang_RefreshProblem, &QAction::triggered, this, [this](){
+        mAisichuang->refreshCurrentProblem();
+    });
+
+    mAisichuang_RunSamples = createGlobalAction(
+                tr("Test With Samples"),
+                "Aisichuang_RunSamples",
+                tr("Aisichuang"),
+                QKeySequence("Ctrl+F6"));
+    connect(mAisichuang_RunSamples, &QAction::triggered, this, [this](){
+        mAisichuang->testSamples();
+    });
+
+    mAisichuang_Submit = createGlobalAction(
+                tr("Submit Code to Aisichuang"),
+                "Aisichuang_Submit",
+                tr("Aisichuang"),
+                QKeySequence("Ctrl+Alt+S"));
+    connect(mAisichuang_Submit, &QAction::triggered, this, [this](){
+        mAisichuang->submitCurrentFile();
+    });
+
+    QMenu* aisichuangMenu = ui->menuTools->addMenu(tr("Aisichuang"));
+    aisichuangMenu->addAction(mAisichuang_ShowPanel);
+    aisichuangMenu->addSeparator();
+    aisichuangMenu->addAction(mAisichuang_Login);
+    aisichuangMenu->addAction(mAisichuang_Logout);
+    aisichuangMenu->addSeparator();
+    aisichuangMenu->addAction(mAisichuang_RefreshProblem);
+    aisichuangMenu->addAction(mAisichuang_RunSamples);
+    aisichuangMenu->addAction(mAisichuang_Submit);
+    updateAisichuangActions();
 
     //Bookmark
     ui->tableBookmark->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -5983,6 +6053,11 @@ void MainWindow::showEvent(QShowEvent *)
     ui->tabExplorer->setCurrentIndex(settings.leftPanelIndex());
     ui->debugViews->setCurrentIndex(settings.debugPanelIndex());
     validateCompilerSet(pSettings->compilerSets().defaultIndex());
+    if (mAisichuang) {
+        AscProblemLinks::instance().load();
+        mAisichuang->restoreSession();
+        updateAisichuangActions();
+    }
 }
 
 void MainWindow::hideEvent(QHideEvent *)
@@ -9153,6 +9228,81 @@ void MainWindow::onProblemRunAllCases()
     showHideMessagesTab(ui->tabProblem,ui->actionProblem);
     applyCurrentProblemCaseChanges();
     runExecutable(RunType::ProblemCases);
+}
+
+bool MainWindow::addProblemToProblemSet(const POJProblem& problem)
+{
+    if (!problem)
+        return false;
+    QString name = problem->name();
+    if (name.isEmpty())
+        name = tr("Untitled Problem");
+    // The list is keyed by name, so a repeated import has to differ.
+    QString uniqueName = name;
+    int suffix = 2;
+    while (mOJProblemSetModel->problemNameUsed(uniqueName)) {
+        uniqueName = QStringLiteral("%1 (%2)").arg(name).arg(suffix++);
+    }
+    problem->setName(uniqueName);
+    mOJProblemSetModel->addProblem(problem);
+    return true;
+}
+
+void MainWindow::selectProblemInProblemSet(const POJProblem& problem)
+{
+    if (!problem)
+        return;
+    for (int i = 0; i < mOJProblemSetModel->count(); i++) {
+        if (mOJProblemSetModel->problem(i) == problem) {
+            ui->tabExplorer->setCurrentWidget(ui->tabProblemSet);
+            ui->lstProblemSet->setCurrentIndex(mOJProblemSetModel->index(i, 0));
+            return;
+        }
+    }
+}
+
+void MainWindow::runSelectedProblemCases()
+{
+    onProblemRunAllCases();
+}
+
+void MainWindow::showAisichuangPanel()
+{
+    if (!mAisichuangPanel)
+        return;
+    ui->dockExplorer->setVisible(true);
+    ui->tabExplorer->setCurrentWidget(mAisichuangPanel);
+}
+
+void MainWindow::updateAisichuangActions()
+{
+    if (!mAisichuang)
+        return;
+    const bool loggedIn = mAisichuang->isLoggedIn();
+    const bool busy = mAisichuang->isBusy();
+    if (mAisichuang_Login)
+        mAisichuang_Login->setEnabled(!loggedIn && !busy);
+    if (mAisichuang_Logout)
+        mAisichuang_Logout->setEnabled(loggedIn);
+    if (mAisichuang_RefreshProblem)
+        mAisichuang_RefreshProblem->setEnabled(loggedIn && !busy);
+    if (mAisichuang_Submit)
+        mAisichuang_Submit->setEnabled(loggedIn && !busy
+                                       && pSettings->aisichuang().enableOnlineSubmit());
+}
+
+void MainWindow::applyAisichuangSettings()
+{
+    if (mAisichuang)
+        mAisichuang->applySettings();
+    updateAisichuangActions();
+}
+
+QStringList MainWindow::aisichuangLanguages() const
+{
+    if (mAisichuang)
+        return mAisichuang->languages();
+    return QStringList();
 }
 
 

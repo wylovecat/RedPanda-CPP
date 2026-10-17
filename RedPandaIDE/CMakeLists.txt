@@ -13,6 +13,11 @@ target_qt_plain_cpp(RedPandaIDE
     src/systemconsts
     src/utils
     src/visithistorymanager
+    # aisichuang
+    src/aisichuang/ascenvelope
+    src/aisichuang/ascproblemlinks
+    src/aisichuang/ascsettings
+    src/aisichuang/ascstatement
     # compiler
     src/compiler/compilerinfo
     # debugger
@@ -90,10 +95,17 @@ target_moc_classes(RedPandaIDE
     src/parser/statementmodel
     # problems
     src/problems/competitivecompenionhandler
+    # aisichuang
+    src/aisichuang/ascclient
+    src/aisichuang/aschandler
+    src/aisichuang/ascpanelwidget
+    src/aisichuang/ascproblemimporter
+    src/aisichuang/ascsessionmanager
     # reformatter
     src/reformatter/basereformatter
     src/reformatter/astyleformatter
     # settings dialog
+    src/settingsdialog/ascoptionswidget
     src/settingsdialog/settingswidget
     # widgets
     src/widgets/bookmarkmodel
@@ -357,6 +369,52 @@ add_test(
     COMMAND test-cppparser)
 
 add_dependencies(all-test-targets test-cppparser)
+
+#####################
+# test-aisichuang   #
+#####################
+
+add_executable(test-aisichuang test/test-aisichuang-main.cpp)
+
+target_qt_plain_cpp(test-aisichuang
+    src/aisichuang/ascenvelope
+    src/aisichuang/ascstatement
+    src/aisichuang/ascproblemimporter
+    src/problems/ojproblemset
+    )
+
+target_moc_classes(test-aisichuang
+    src/aisichuang/ascclient
+    test/test_aisichuang
+)
+target_include_directories(test-aisichuang PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(test-aisichuang PRIVATE
+        Qt::Core
+        Qt::Gui
+        Qt::Network
+        Qt::Test
+        redpanda_qt_utils)
+
+if (QT_FEATURE_static)
+    qt_import_plugins(test-aisichuang
+        INCLUDE Qt::QOffscreenIntegrationPlugin)
+endif()
+
+target_compile_definitions(test-aisichuang PRIVATE
+    ${GLOBAL_COMPILE_DEFINITIONS}
+    APP_NAME=\"test-aisichuang\"
+    LIBEXECDIR=\"${CMAKE_INSTALL_LIBEXECDIR}\"
+    REDPANDA_CPP_VERSION=\"${REDPANDA_VERSION}\"
+    ARCH_X86_64=1
+    ARCH_X86=1)
+
+add_test(
+    NAME test-aisichuang
+    COMMAND test-aisichuang)
+
+add_dependencies(all-test-targets test-aisichuang)
 
 #####################
 # Platform-specific #

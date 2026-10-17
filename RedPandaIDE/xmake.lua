@@ -95,6 +95,11 @@ target("RedPandaIDE")
         -- problems
         "src/problems/freeprojectsetformat.cpp",
         "src/problems/problemcasevalidator.cpp",
+        -- aisichuang
+        "src/aisichuang/ascenvelope.cpp",
+        "src/aisichuang/ascproblemlinks.cpp",
+        "src/aisichuang/ascsettings.cpp",
+        "src/aisichuang/ascstatement.cpp",
         -- settings
         "src/settings/basesettings.cpp",
         "src/settings/codecompletionsettings.cpp",
@@ -155,11 +160,18 @@ target("RedPandaIDE")
         "src/parser/statementmodel",
         -- problems
         "src/problems/competitivecompenionhandler",
+        -- aisichuang
+        "src/aisichuang/ascclient",
+        "src/aisichuang/aschandler",
+        "src/aisichuang/ascpanelwidget",
+        "src/aisichuang/ascproblemimporter",
+        "src/aisichuang/ascsessionmanager",
         "src/problems/ojproblemset",
         -- reformatter
         "src/reformatter/astyleformatter",
         "src/reformatter/basereformatter",
         -- settings dialog
+        "src/settingsdialog/ascoptionswidget",
         "src/settingsdialog/settingswidget",
         -- widgets
         "src/widgets/bookmarkmodel",
