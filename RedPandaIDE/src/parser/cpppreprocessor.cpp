@@ -558,21 +558,29 @@ QString CppPreprocessor::expandMacros(QString text, bool handleBuffer, const QSe
                     newLine += word;
                 } else {
                     QSet<QString> macrosUsed;
-                    QSet<QString> ignores=macrosToBeIgnored;
-                    auto it = tempIngoreMacros.begin();
-                    while(it!=tempIngoreMacros.end()) {
-                        if (it.key()>=i)
-                            ignores.insert(it.value());
-                        ++it;
+                    // Only build a merged ignore set when temporary ignore macros
+                    // are active; otherwise pass macrosToBeIgnored through directly
+                    // to avoid copying it for every word.
+                    QSet<QString> ignores;
+                    const QSet<QString>* effectiveIgnores = &macrosToBeIgnored;
+                    if (!tempIngoreMacros.isEmpty()) {
+                        ignores = macrosToBeIgnored;
+                        auto it = tempIngoreMacros.constBegin();
+                        while(it!=tempIngoreMacros.constEnd()) {
+                            if (it.key()>=i)
+                                ignores.insert(it.value());
+                            ++it;
+                        }
+                        effectiveIgnores = &ignores;
                     }
-                    QString newWord = expandMacro(text,define,i, handleBuffer,ignores,macrosUsed);
+                    QString newWord = expandMacro(text,define,i, handleBuffer,*effectiveIgnores,macrosUsed);
                     if (!macrosUsed.isEmpty()) {
                         //adjust ignore macro list
-                        QMultiHash<int,QString> tempMacros2 = tempIngoreMacros;
-                        tempIngoreMacros.clear();
+                        QMultiHash<int,QString> tempMacros2;
+                        tempMacros2.swap(tempIngoreMacros);
                         int diff = newWord.length()-word.length();
-                        auto it = tempMacros2.begin();
-                        while(it!=tempMacros2.end()) {
+                        auto it = tempMacros2.constBegin();
+                        while(it!=tempMacros2.constEnd()) {
                             if (it.key()>=i)
                                 tempIngoreMacros.insert(it.key()+diff, it.value());
                             ++it;

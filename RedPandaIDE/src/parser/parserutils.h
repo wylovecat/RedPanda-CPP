@@ -404,10 +404,10 @@ bool isScopeTypeKind(StatementKind kind);
 bool isTypeKind(StatementKind kind);
 MemberOperatorType getOperatorType(const QString& phrase, int index);
 QStringList getOwnerExpressionAndMember(
-        const QStringList expression,
+        const QStringList& expression,
         QString& memberOperator,
         QStringList& memberExpression);
-bool isMemberOperator(QString token);
+bool isMemberOperator(const QString& token);
 StatementKind getKindOfStatement(const PStatement& statement);
 
 #endif // PARSER_UTILS_H

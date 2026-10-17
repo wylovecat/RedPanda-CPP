@@ -373,6 +373,7 @@ PSearchResultTreeItem CppRefacter::findOccurenceInFile(
                         item->parent = parentItem.get();
                         item->text = line;
                         item->text.replace('\t',' ');
+                        item->row = parentItem->results.count();
                         parentItem->results.append(item);
                     }
                 }

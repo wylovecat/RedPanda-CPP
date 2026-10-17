@@ -453,11 +453,7 @@ Editor *Project::unitEditor(const ProjectUnit *unit) const
 
 QList<PProjectUnit> Project::unitList()
 {
-    QList<PProjectUnit> units;
-    foreach(PProjectUnit unit, mUnits) {
-        units.append(unit);
-    }
-    return units;
+    return mUnits.values();
 }
 
 QStringList Project::unitFiles()

@@ -20,6 +20,7 @@
 #include <qt_utils/utils.h>
 #include <QApplication>
 #include <QDate>
+#include <QEventLoop>
 #include <QHash>
 #include <QQueue>
 #include <QRegularExpression>
@@ -760,21 +761,23 @@ QList<PStatement> CppParser::doListStatements(const QString &fileName, int line,
     PStatement scopeStatement = doFindScopeStatement(fileName,line);
     while (true) {
         const StatementMap& statementMap = mStatementList.childrenStatements(scopeStatement);
-        foreach (const PStatement statement, statementMap.values()) {
+        for (auto it = statementMap.constBegin(); it != statementMap.constEnd(); ++it) {
+            const PStatement& statement = it.value();
             if (kinds.contains(statement->kind))
                 result.append(statement);
         }
         if (!scopeStatement)
             break;
-        usedNamespaces = usedNamespaces.unite(scopeStatement->usingList);
+        usedNamespaces.unite(scopeStatement->usingList);
         scopeStatement=scopeStatement->parentScope.lock();
     }
-    usedNamespaces = usedNamespaces.unite(internalGetFileUsings(fileName));
+    usedNamespaces.unite(internalGetFileUsings(fileName));
     foreach(const QString& ns, usedNamespaces) {
         PStatementList namespaceStatementsList=doFindNamespace(ns);
         foreach (const PStatement& namespaceStatement,*namespaceStatementsList) {
             const StatementMap& statementMap = mStatementList.childrenStatements(namespaceStatement);
-            foreach (const PStatement statement, statementMap.values()) {
+            for (auto it = statementMap.constBegin(); it != statementMap.constEnd(); ++it) {
+                const PStatement& statement = it.value();
                 if (kinds.contains(statement->kind))
                     result.append(statement);
             }
@@ -1211,7 +1214,8 @@ void CppParser::resetParser()
         }
         QThread::msleep(50);
         QCoreApplication* app = QApplication::instance();
-        app->processEvents();
+        if (app)
+            app->processEvents(QEventLoop::ExcludeUserInputEvents);
     }
     {
         auto action = finally([this]{
@@ -1914,34 +1918,50 @@ QStringList CppParser::sortFilesByIncludeRelations(const QSet<QString> &files)
         mPreprocessor.clearTempResults();
     }
 
-    QSet<QString> fileSet=files;
-    while (!fileSet.isEmpty()) {
-        bool found=false;
-        foreach (const QString& file,fileSet) {
-            PParsedFileInfo fileInfo = mPreprocessor.findFileInfo(file);
-            bool hasInclude=false;
-            if (fileInfo) {
-                foreach(const QString& inc,fileInfo->includes()) {
-                    if (fileSet.contains(inc)) {
-                        hasInclude=true;
-                        break;
-                    }
-                }
-            }
-            if (!hasInclude) {
-                result.push_front(file);
-                fileSet.remove(file);
-                found=true;
-                break;
+    // Build a local include-dependency map and emit files with Kahn's algorithm,
+    // avoiding the O(n^2) rescanning of the previous loop. Keeps the original
+    // ordering semantics (a file that includes others is emitted before them).
+    QSet<QString> fileSet = files;
+    QHash<QString, QList<QString>> dependents; // included file -> files that include it
+    QHash<QString, int> pending;               // remaining includes still to be emitted
+    for (const QString& file : fileSet) {
+        const PParsedFileInfo fileInfo = mPreprocessor.findFileInfo(file);
+        QSet<QString> fileDeps;
+        if (fileInfo) {
+            for (const QString& inc : fileInfo->includes()) {
+                if (fileSet.contains(inc))
+                    fileDeps.insert(inc);
             }
         }
-        if (!found) {
-            foreach (const QString& file,fileSet) {
-                result.push_front(file);
-                fileSet.remove(file);
+        pending.insert(file, fileDeps.size());
+        for (const QString& dep : fileDeps)
+            dependents[dep].append(file);
+    }
+    QList<QString> ready;
+    for (auto it = pending.constBegin(); it != pending.constEnd(); ++it) {
+        if (it.value() == 0)
+            ready.append(it.key());
+    }
+    QSet<QString> remaining = fileSet;
+    while (!ready.isEmpty()) {
+        const QString file = ready.takeFirst();
+        if (!remaining.remove(file))
+            continue;
+        result.push_front(file);
+        auto depIt = dependents.constFind(file);
+        if (depIt != dependents.constEnd()) {
+            for (const QString& dependent : *depIt) {
+                if (remaining.contains(dependent)) {
+                    int& count = pending[dependent];
+                    if (--count == 0)
+                        ready.append(dependent);
+                }
             }
         }
     }
+    // Remaining files form include cycles; emit them like before (order unspecified).
+    for (const QString& file : remaining)
+        result.push_front(file);
     QSet<QString> newScannedFiles{mPreprocessor.scannedFiles()};
     foreach(const QString& file, newScannedFiles) {
         if (!saveScannedFiles.contains(file))
@@ -2536,7 +2556,8 @@ QString CppParser::doFindTemplateParamOf(const QString &fileName, const QString 
         i=getTemplateParamStart(s,i,index);
         int t=getTemplateParamEnd(s,i);
         //qDebug()<<index<<s<<s.mid(i,t-i)<<i<<t;
-        return s.mid(i,t-i).replace(QRegularExpression("\\s+"),"");
+        static const QRegularExpression whitespaceRE(QStringLiteral("\\s+"));
+        return s.mid(i,t-i).replace(whitespaceRE, QString());
     }
     int position = s.length()-1;
     while ((position >= 0) && (s[position] == '*'
@@ -6453,10 +6474,10 @@ QString CppParser::splitPhrase(const QString &phrase, QString &sClazz,
     int secondOp = 0;
     bracketLevel = 0;
     for (int i = firstOpEnd; i<phraseLength;i++) {
-        if ((i+1<phraseLength) && (phrase[i] == '-') && (phrase[i + 1] == '>') && (bracketLevel=0)) {
+        if ((i+1<phraseLength) && (phrase[i] == '-') && (phrase[i + 1] == '>') && (bracketLevel==0)) {
             secondOp = i;
             break;
-        } else if ((i+1<phraseLength) && (phrase[i] == ':') && (phrase[i + 1] == ':') && (bracketLevel=0)) {
+        } else if ((i+1<phraseLength) && (phrase[i] == ':') && (phrase[i + 1] == ':') && (bracketLevel==0)) {
             secondOp = i;
             break;
         } else if ((phrase[i] == '.') && (bracketLevel=0)) {
@@ -6950,7 +6971,8 @@ void CppParser::parseFileBlocking(PCppParser parser, const QString &fileName, bo
         QThread::msleep(100);
         QApplication *app=dynamic_cast<QApplication*>(
                     QApplication::instance());
-        app->processEvents();
+        if (app)
+            app->processEvents(QEventLoop::ExcludeUserInputEvents);
     }
     parser->parseFile(fileName, inProject, contextFilename, onlyIfNotParsed, updateView);
 }

@@ -136,6 +136,7 @@ void SearchResultModel::addResultToSearchResults(PSearchResults results, PSearch
         mTreeModel->beginInsertRows(QModelIndex(),idx,idx);
     }
     results->mResults.append(item);
+    item->row = results->mResults.count() - 1;
     if (notifyModel)
         mTreeModel->endInsertRows();
 }
@@ -213,11 +214,13 @@ QModelIndex SearchResultTreeModel::parent(const QModelIndex &child) const
         if (item->parent==nullptr)
             return QModelIndex();
         SearchResultTreeItem* parent = item->parent;
-        int row = -1;
-        for (int i=0;i<parent->results.count();i++) {
-            if (parent->results[i].get()==item) {
-                row = i;
-                break;
+        int row = item->row;
+        if (row < 0) { // fallback: cache not populated
+            for (int i=0;i<parent->results.count();i++) {
+                if (parent->results[i].get()==item) {
+                    row = i;
+                    break;
+                }
             }
         }
         return createIndex(row,0,parent);

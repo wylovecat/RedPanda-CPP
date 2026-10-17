@@ -639,7 +639,7 @@ void EvalStatement::assignType(const PEvalStatement &typeStatement)
     effectiveTypeStatement = typeStatement->effectiveTypeStatement;
 }
 
-QStringList getOwnerExpressionAndMember(const QStringList expression, QString &memberOperator, QStringList &memberExpression)
+QStringList getOwnerExpressionAndMember(const QStringList& expression, QString &memberOperator, QStringList &memberExpression)
 {
     //find position of the last member operator
     int lastMemberOperatorPos = -1;
@@ -647,7 +647,7 @@ QStringList getOwnerExpressionAndMember(const QStringList expression, QString &m
     QString matchingSignLeft;
     QString matchingSignRight;
     for (int i=0;i<expression.length();i++) {
-        QString token = expression[i];
+        const QString& token = expression[i];
         if (currentMatchingLevel == 0) {
             if (isMemberOperator(token)) {
                 lastMemberOperatorPos = i;
@@ -689,7 +689,7 @@ QStringList getOwnerExpressionAndMember(const QStringList expression, QString &m
 
 }
 
-bool isMemberOperator(QString token)
+bool isMemberOperator(const QString& token)
 {
     return MemberOperators.contains(token);
 }

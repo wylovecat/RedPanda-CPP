@@ -43,6 +43,7 @@ struct SearchResultTreeItem {
     SearchResultTreeItem* parent;
     SearchResultTreeItemList results;
     bool selected;
+    int row = -1; // cached index within parent->results
 };
 
 
