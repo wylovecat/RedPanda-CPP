@@ -1,0 +1,304 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+        xmlns:models="clr-namespace:RedPanda.Competition.Models"
+        xmlns:views="clr-namespace:RedPanda.Competition.Views"
+        x:Class="RedPanda.Competition.MainWindow"
+        Title="RedPanda CP · 算法竞赛版"
+        Width="1240"
+        Height="820"
+        MinWidth="980"
+        MinHeight="640"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource AppWindowBrush}"
+        Icon="/AppAssets/redpanda.ico">
+
+  <Window.Resources>
+    <views:StatusToBrushConverter x:Key="StatusBrush" />
+    <views:DiffKindToBrushConverter x:Key="DiffBrush" />
+  </Window.Resources>
+
+  <DockPanel LastChildFill="True">
+
+    <Border DockPanel.Dock="Top"
+            Background="{DynamicResource PanelBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="0,0,0,1"
+            Padding="10,6">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <StackPanel Orientation="Horizontal" Spacing="3">
+          <Button Classes="toolbar" Click="NewFile_Click" ToolTip.Tip="新建 (Ctrl+N)">新建</Button>
+          <Button Classes="toolbar" Click="OpenFile_Click" ToolTip.Tip="打开 (Ctrl+O)">打开</Button>
+          <Button Classes="toolbar" Click="SaveFile_Click" ToolTip.Tip="保存 (Ctrl+S)">保存</Button>
+          <Button Classes="toolbar" Click="SaveAs_Click" ToolTip.Tip="另存为 (Ctrl+Shift+S)">另存为</Button>
+
+          <Border Width="1" Height="20" Margin="6,0" Background="{DynamicResource BorderBrush}" />
+
+          <Button x:Name="CompileButton"
+                  Classes="toolbar"
+                  Click="Compile_Click"
+                  ToolTip.Tip="只编译，不运行 (Ctrl+F9)">编译</Button>
+          <Button x:Name="RunButton"
+                  Classes="toolbar"
+                  Click="Run_Click"
+                  ToolTip.Tip="运行选中测试点，源码未变时复用上次编译 (Shift+F9)">运行</Button>
+          <Button x:Name="CompileRunButton"
+                  Classes="accent run"
+                  Click="CompileRun_Click"
+                  ToolTip.Tip="重新编译并运行当前测试点 (F9)">编译运行</Button>
+          <Button x:Name="RunAllButton"
+                  Classes="toolbar"
+                  Click="RunAll_Click"
+                  ToolTip.Tip="运行全部已勾选测试点 (F10)">测试全部</Button>
+          <Button x:Name="StopButton"
+                  Classes="toolbar"
+                  IsVisible="False"
+                  Click="Stop_Click">停止</Button>
+        </StackPanel>
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3">
+          <Button x:Name="ThemeButton"
+                  Classes="toolbar"
+                  Click="ToggleTheme_Click"
+                  ToolTip.Tip="切换浅色/深色主题">深色</Button>
+          <Button Classes="toolbar" Click="Settings_Click" ToolTip.Tip="编译器与运行设置">设置</Button>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Border DockPanel.Dock="Bottom"
+            Background="{DynamicResource PanelBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="0,1,0,0"
+            Padding="10,4">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock x:Name="StatusText"
+                   Text="就绪"
+                   VerticalAlignment="Center"
+                   TextTrimming="CharacterEllipsis"
+                   Margin="0,0,12,0" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">
+          <TextBlock x:Name="CompilerStatusText" Classes="hint" Text="正在检测 g++…" />
+          <TextBlock x:Name="CaretText" Classes="hint" Text="行 1，列 1" />
+          <TextBlock x:Name="FileEncodingText" Classes="hint" Text="UTF-8" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid ColumnDefinitions="*,5,360" Margin="8">
+      <Grid Grid.Column="0" RowDefinitions="*,5,190">
+        <Border Classes="panel" ClipToBounds="True">
+          <edit:TextEditor x:Name="CodeEditor"
+                           ShowLineNumbers="True"
+                           FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+                           Background="{DynamicResource EditorBackgroundBrush}"
+                           Foreground="{DynamicResource EditorForegroundBrush}"
+                           LineNumbersForeground="{DynamicResource EditorLineNumberBrush}"
+                           HorizontalScrollBarVisibility="Auto"
+                           VerticalScrollBarVisibility="Auto"
+                           WordWrap="False"
+                           Padding="6,4" />
+        </Border>
+
+        <GridSplitter Grid.Row="1"
+                      ResizeDirection="Rows"
+                      Background="Transparent"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch" />
+
+        <TabControl x:Name="BottomTabs" Grid.Row="2" Margin="0,4,0,0">
+          <TabItem Header="编译输出">
+            <TextBox x:Name="CompileOutputBox"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     TextWrapping="NoWrap"
+                     FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+                     FontSize="12"
+                     Background="{DynamicResource PanelAltBrush}"
+                     BorderThickness="0"
+                     Padding="8"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+          </TabItem>
+          <TabItem Header="运行日志">
+            <TextBox x:Name="RunLogBox"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     TextWrapping="NoWrap"
+                     FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+                     FontSize="12"
+                     Background="{DynamicResource PanelAltBrush}"
+                     BorderThickness="0"
+                     Padding="8"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+          </TabItem>
+          <TabItem Header="对比">
+            <ScrollViewer Background="{DynamicResource PanelAltBrush}"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Auto">
+              <ItemsControl x:Name="DiffList"
+                            Margin="8"
+                            FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+                            FontSize="12">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="models:DiffLine">
+                    <Grid ColumnDefinitions="18,*">
+                      <TextBlock Text="{Binding Marker}"
+                                 Foreground="{Binding Kind, Converter={StaticResource DiffBrush}}"
+                                 FontWeight="Bold" />
+                      <TextBlock Grid.Column="1"
+                                 Text="{Binding Text}"
+                                 TextWrapping="NoWrap" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </TabItem>
+        </TabControl>
+      </Grid>
+
+      <GridSplitter Grid.Column="1"
+                    ResizeDirection="Columns"
+                    Background="Transparent"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch" />
+
+      <Border Grid.Column="2" Classes="panel" Padding="10" Margin="4,0,0,0">
+        <Grid RowDefinitions="Auto,140,Auto,*,Auto,*,Auto,*">
+
+          <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="2">
+            <TextBlock Text="测试点" Classes="section" Margin="0" VerticalAlignment="Center" />
+            <CheckBox Grid.Column="1"
+                      x:Name="SelectAllCheckBox"
+                      Content="全选"
+                      FontSize="11"
+                      VerticalAlignment="Center"
+                      Click="SelectAllCases_Click"
+                      ToolTip.Tip="勾选或取消勾选全部测试点" />
+            <Button Grid.Column="2"
+                    Classes="toolbar"
+                    Content="添加"
+                    Click="AddCase_Click"
+                    ToolTip.Tip="添加一个测试点" />
+            <Button Grid.Column="3"
+                    Classes="toolbar"
+                    Content="删除"
+                    Click="RemoveCase_Click"
+                    ToolTip.Tip="删除当前测试点" />
+            <Button Grid.Column="4"
+                    Classes="toolbar"
+                    Content="更多"
+                    ToolTip.Tip="批量导入/导出与批量操作">
+              <Button.Flyout>
+                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                  <MenuItem Header="从文件导入测试点…" Click="ImportCasesFromFiles_Click" />
+                  <MenuItem Header="从文件夹导入测试点…" Click="ImportCasesFromFolder_Click" />
+                  <MenuItem Header="导出测试点到文件夹…" Click="ExportCases_Click" />
+                  <Separator />
+                  <MenuItem Header="全选" Click="CheckAllCases_Click" />
+                  <MenuItem Header="全不选" Click="UncheckAllCases_Click" />
+                  <MenuItem Header="反选" Click="InvertCases_Click" />
+                  <Separator />
+                  <MenuItem Header="删除空测试点" Click="DeleteEmptyCases_Click" />
+                </MenuFlyout>
+              </Button.Flyout>
+            </Button>
+          </Grid>
+
+          <ListBox x:Name="CaseList"
+                   Grid.Row="1"
+                   ItemsSource="{Binding TestCases}"
+                   SelectedItem="{Binding SelectedCase, Mode=TwoWay}"
+                   Background="{DynamicResource PanelAltBrush}"
+                   BorderBrush="{DynamicResource BorderBrush}"
+                   BorderThickness="1"
+                   Margin="0,4,0,8">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="models:TestCase">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                  <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                            VerticalAlignment="Center"
+                            Margin="0,0,4,0" />
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding Name}"
+                             VerticalAlignment="Center"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Grid.Column="2"
+                             Text="{Binding Status}"
+                             Foreground="{Binding Status, Converter={StaticResource StatusBrush}}"
+                             FontSize="11"
+                             VerticalAlignment="Center"
+                             Margin="8,0,0,0" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <TextBlock Grid.Row="2" Text="输入 (stdin)" Classes="section" Margin="0,0,0,4" />
+          <TextBox Grid.Row="3"
+                   x:Name="InputBox"
+                   Text="{Binding SelectedCase.Input, Mode=TwoWay}"
+                   AcceptsReturn="True"
+                   TextWrapping="NoWrap"
+                   PlaceholderText="程序的标准输入"
+                   FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+                   FontSize="12"
+                   Padding="6"
+                   Margin="0,0,0,8"
+                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto" />
+
+          <TextBlock Grid.Row="4" Text="期望输出（留空则不比对；忽略行尾空白）" Classes="section" Margin="0,0,0,4" />
+          <TextBox Grid.Row="5"
+                   Text="{Binding SelectedCase.ExpectedOutput, Mode=TwoWay}"
+                   AcceptsReturn="True"
+                   TextWrapping="NoWrap"
+                   PlaceholderText="标准答案"
+                   FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+                   FontSize="12"
+                   Padding="6"
+                   Margin="0,0,0,8"
+                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto" />
+
+          <Grid Grid.Row="6" ColumnDefinitions="*,Auto" Margin="0,2,0,4">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock Text="实际输出" Classes="section" Margin="0" VerticalAlignment="Center" />
+              <TextBlock Text="{Binding SelectedCase.Status}"
+                         Foreground="{Binding SelectedCase.Status, Converter={StaticResource StatusBrush}}"
+                         FontWeight="SemiBold"
+                         FontSize="12"
+                         VerticalAlignment="Center" />
+              <TextBlock Text="{Binding SelectedCase.PerformanceText}"
+                         Classes="hint"
+                         FontSize="11"
+                         VerticalAlignment="Center" />
+            </StackPanel>
+            <Button Grid.Column="1"
+                    Classes="toolbar"
+                    Content="设为期望"
+                    FontSize="11"
+                    Padding="8,3"
+                    Click="CopyOutputToExpected_Click"
+                    IsEnabled="{Binding SelectedCase.HasRun}"
+                    ToolTip.Tip="把完整标准输出复制到期望输出（比较仍忽略行尾空白）" />
+          </Grid>
+
+          <TextBox Grid.Row="7"
+                   Text="{Binding SelectedCase.ActualOutput}"
+                   IsReadOnly="True"
+                   AcceptsReturn="True"
+                   TextWrapping="NoWrap"
+                   FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+                   FontSize="12"
+                   Padding="6"
+                   Background="{DynamicResource PanelAltBrush}"
+                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto" />
+        </Grid>
+      </Border>
+    </Grid>
+  </DockPanel>
+</Window>

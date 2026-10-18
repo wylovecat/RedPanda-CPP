@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SyntaxDefinition name="C++ (Dark)" extensions=".cpp;.c;.cc;.cxx;.h;.hpp"
+                  xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Comment" foreground="#6A9955" />
+  <Color name="String" foreground="#CE9178" />
+  <Color name="Character" foreground="#CE9178" />
+  <Color name="Number" foreground="#B5CEA8" />
+  <Color name="Keyword" foreground="#569CD6" />
+  <Color name="Type" foreground="#4EC9B0" />
+  <Color name="Constant" foreground="#569CD6" />
+  <Color name="Preprocessor" foreground="#C586C0" />
+
+  <RuleSet>
+    <Span color="Comment" multiline="true" begin="/\*" end="\*/" />
+    <Span color="Comment" begin="//" />
+    <Span color="String" begin="&quot;" end="&quot;" escapeCharacter="\" />
+    <Span color="Character" begin="'" end="'" escapeCharacter="\" />
+    <Span color="Preprocessor" begin="^[ \t]*#" />
+
+    <Keywords color="Keyword">
+      <Word>alignas</Word>
+      <Word>alignof</Word>
+      <Word>asm</Word>
+      <Word>auto</Word>
+      <Word>break</Word>
+      <Word>case</Word>
+      <Word>catch</Word>
+      <Word>class</Word>
+      <Word>co_await</Word>
+      <Word>co_return</Word>
+      <Word>co_yield</Word>
+      <Word>concept</Word>
+      <Word>const</Word>
+      <Word>consteval</Word>
+      <Word>constexpr</Word>
+      <Word>constinit</Word>
+      <Word>const_cast</Word>
+      <Word>continue</Word>
+      <Word>decltype</Word>
+      <Word>default</Word>
+      <Word>delete</Word>
+      <Word>do</Word>
+      <Word>dynamic_cast</Word>
+      <Word>else</Word>
+      <Word>enum</Word>
+      <Word>explicit</Word>
+      <Word>export</Word>
+      <Word>extern</Word>
+      <Word>final</Word>
+      <Word>for</Word>
+      <Word>friend</Word>
+      <Word>goto</Word>
+      <Word>if</Word>
+      <Word>inline</Word>
+      <Word>mutable</Word>
+      <Word>namespace</Word>
+      <Word>new</Word>
+      <Word>noexcept</Word>
+      <Word>operator</Word>
+      <Word>override</Word>
+      <Word>private</Word>
+      <Word>protected</Word>
+      <Word>public</Word>
+      <Word>register</Word>
+      <Word>reinterpret_cast</Word>
+      <Word>requires</Word>
+      <Word>return</Word>
+      <Word>sizeof</Word>
+      <Word>static</Word>
+      <Word>static_assert</Word>
+      <Word>static_cast</Word>
+      <Word>struct</Word>
+      <Word>switch</Word>
+      <Word>template</Word>
+      <Word>this</Word>
+      <Word>throw</Word>
+      <Word>try</Word>
+      <Word>typedef</Word>
+      <Word>typeid</Word>
+      <Word>typename</Word>
+      <Word>union</Word>
+      <Word>using</Word>
+      <Word>virtual</Word>
+      <Word>volatile</Word>
+      <Word>while</Word>
+    </Keywords>
+
+    <Keywords color="Type">
+      <Word>bool</Word>
+      <Word>char</Word>
+      <Word>char8_t</Word>
+      <Word>char16_t</Word>
+      <Word>char32_t</Word>
+      <Word>double</Word>
+      <Word>float</Word>
+      <Word>int</Word>
+      <Word>long</Word>
+      <Word>short</Word>
+      <Word>signed</Word>
+      <Word>unsigned</Word>
+      <Word>void</Word>
+      <Word>wchar_t</Word>
+      <Word>size_t</Word>
+      <Word>int8_t</Word>
+      <Word>int16_t</Word>
+      <Word>int32_t</Word>
+      <Word>int64_t</Word>
+      <Word>uint8_t</Word>
+      <Word>uint16_t</Word>
+      <Word>uint32_t</Word>
+      <Word>uint64_t</Word>
+      <Word>intmax_t</Word>
+      <Word>uintmax_t</Word>
+      <Word>string</Word>
+      <Word>vector</Word>
+      <Word>array</Word>
+      <Word>deque</Word>
+      <Word>list</Word>
+      <Word>map</Word>
+      <Word>set</Word>
+      <Word>multimap</Word>
+      <Word>multiset</Word>
+      <Word>unordered_map</Word>
+      <Word>unordered_set</Word>
+      <Word>pair</Word>
+      <Word>tuple</Word>
+      <Word>queue</Word>
+      <Word>stack</Word>
+      <Word>priority_queue</Word>
+      <Word>bitset</Word>
+      <Word>auto</Word>
+      <Word>std</Word>
+    </Keywords>
+
+    <Keywords color="Constant">
+      <Word>true</Word>
+      <Word>false</Word>
+      <Word>nullptr</Word>
+      <Word>NULL</Word>
+    </Keywords>
+
+    <Rule color="Number">\b(0[xX][0-9a-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?)[uUlLfF]*\b</Rule>
+  </RuleSet>
+</SyntaxDefinition>

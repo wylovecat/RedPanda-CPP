@@ -1,0 +1,100 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="RedPanda.Competition.Views.SettingsWindow"
+        Title="设置 · RedPanda CP"
+        Width="660"
+        Height="780"
+        MinWidth="600"
+        MinHeight="600"
+        CanResize="True"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppWindowBrush}"
+        Icon="/AppAssets/redpanda.ico">
+
+  <DockPanel Margin="20">
+    <StackPanel DockPanel.Dock="Bottom"
+                Orientation="Horizontal"
+                HorizontalAlignment="Right"
+                Spacing="8"
+                Margin="0,16,0,0">
+      <Button Content="取消" Click="Cancel_Click" MinWidth="86" />
+      <Button Content="保存" Click="Save_Click" MinWidth="86" Classes="accent" />
+    </StackPanel>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="14">
+
+        <TextBlock Text="编译" FontSize="15" FontWeight="SemiBold" />
+        <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10">
+          <TextBlock Text="g++ 路径" VerticalAlignment="Center" />
+          <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
+            <TextBox x:Name="CompilerPathBox" PlaceholderText="留空自动检测（PATH / RedPanda-CPP 安装目录）" />
+            <Button Grid.Column="1" Content="浏览…" Click="Browse_Click" Margin="8,0,0,0" />
+          </Grid>
+
+          <TextBlock Grid.Row="1" Text="C++ 标准" VerticalAlignment="Center" />
+          <ComboBox Grid.Row="1" Grid.Column="1" x:Name="StandardBox" HorizontalAlignment="Stretch" />
+
+          <TextBlock Grid.Row="2" Text="优化级别" VerticalAlignment="Center" />
+          <ComboBox Grid.Row="2" Grid.Column="1" x:Name="OptimizationBox" HorizontalAlignment="Stretch" />
+
+          <TextBlock Grid.Row="3" Text="额外参数" VerticalAlignment="Center" />
+          <TextBox Grid.Row="3" Grid.Column="1" x:Name="ExtraArgsBox" PlaceholderText="例如 -DONLINE_JUDGE，可留空" />
+        </Grid>
+
+        <Border Height="1" Background="{DynamicResource BorderBrush}" />
+
+        <TextBlock Text="运行限制" FontSize="15" FontWeight="SemiBold" />
+        <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10">
+          <TextBlock Text="时间限制" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <NumericUpDown x:Name="TimeLimitBox" Minimum="100" Maximum="60000" Increment="100" FormatString="0" Width="150" />
+            <TextBlock Text="毫秒" VerticalAlignment="Center" Classes="hint" />
+          </StackPanel>
+
+          <TextBlock Grid.Row="1" Text="内存限制" VerticalAlignment="Center" />
+          <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <NumericUpDown x:Name="MemoryLimitBox" Minimum="16" Maximum="8192" Increment="16" FormatString="0" Width="150" />
+            <TextBlock Text="MB（由 Windows Job Object 执行）" VerticalAlignment="Center" Classes="hint" />
+          </StackPanel>
+
+          <TextBlock Grid.Row="2" Text="输出上限" VerticalAlignment="Center" />
+          <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <NumericUpDown x:Name="OutputLimitBox" Minimum="16" Maximum="16384" Increment="64" FormatString="0" Width="150" />
+            <TextBlock Text="KB，超出后自动停止程序" VerticalAlignment="Center" Classes="hint" />
+          </StackPanel>
+
+          <TextBlock Grid.Row="3" Text="显示上限" VerticalAlignment="Center" />
+          <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <NumericUpDown x:Name="DisplayLimitBox" Minimum="4" Maximum="1024" Increment="16" FormatString="0" Width="150" />
+            <TextBlock Text="千字符，仅截断界面显示，完整结果仍用于比对" VerticalAlignment="Center" Classes="hint" />
+          </StackPanel>
+        </Grid>
+
+        <Border Height="1" Background="{DynamicResource BorderBrush}" />
+
+        <TextBlock Text="外观" FontSize="15" FontWeight="SemiBold" />
+        <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
+          <TextBlock Text="主题" VerticalAlignment="Center" />
+          <ComboBox Grid.Column="1" x:Name="ThemeBox" HorizontalAlignment="Stretch" />
+
+          <TextBlock Grid.Row="1" Text="编辑器字号" VerticalAlignment="Center" />
+          <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <NumericUpDown x:Name="FontSizeBox" Minimum="9" Maximum="40" Increment="1" FormatString="0" Width="150" />
+            <TextBlock Text="磅" VerticalAlignment="Center" Classes="hint" />
+          </StackPanel>
+
+          <TextBlock Grid.Row="2" Text="行号" VerticalAlignment="Center" />
+          <CheckBox Grid.Row="2" Grid.Column="1" x:Name="ShowLineNumbersBox" Content="显示行号" />
+        </Grid>
+
+        <Border Height="1" Background="{DynamicResource BorderBrush}" />
+
+        <TextBlock Classes="hint"
+                   TextWrapping="Wrap"
+                   Text="说明：编译产物存放在 %LOCALAPPDATA%\RedPandaCP\build，源文件和测试点不会被改动。内存上限由 Windows Job Object 执行；若宿主环境禁止嵌套 Job，则只报告峰值内存。" />
+
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>
