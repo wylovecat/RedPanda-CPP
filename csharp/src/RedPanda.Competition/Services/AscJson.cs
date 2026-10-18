@@ -560,8 +560,18 @@ public static class AscJson
         result.IsPass = Num(data, 0, "subIsPass", "isPass");
         result.Judging = result.IsPass == 7;
         result.Score = Num(data, 0, "subScore", "score");
-        result.TimeMs = Num(data, 0, "timeCost", "time_cost");
-        result.MemoryBytes = Num(data, 0, "memoryCost", "memory_cost");
+        result.TimeMs = Num(
+            data,
+            0,
+            "timeCost", "time_cost", "timeUsed", "time_used",
+            "subTimeCost", "sub_time_cost", "costTime", "cost_time",
+            "runTime", "run_time");
+        result.MemoryBytes = Num(
+            data,
+            0,
+            "memoryCost", "memory_cost", "memoryUsed", "memory_used",
+            "subMemoryCost", "sub_memory_cost", "costMemory", "cost_memory",
+            "runMemory", "run_memory");
         return result;
     }
 
@@ -635,15 +645,37 @@ public static class AscJson
 
     private static long ToLong(JsonElement value, long defaultValue)
     {
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number))
+        if (value.ValueKind == JsonValueKind.Number)
         {
-            return number;
+            if (value.TryGetInt64(out var integer))
+            {
+                return integer;
+            }
+
+            // A field such as timeCost may arrive as 12.0 rather than 12.
+            // The C++ client casts the double; do the same instead of losing it.
+            try
+            {
+                return (long)Math.Round(value.GetDouble());
+            }
+            catch
+            {
+                return defaultValue;
+            }
         }
 
-        if (value.ValueKind == JsonValueKind.String &&
-            long.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out number))
+        if (value.ValueKind == JsonValueKind.String)
         {
-            return number;
+            var text = value.GetString();
+            if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number))
+            {
+                return number;
+            }
+
+            if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var floating))
+            {
+                return (long)Math.Round(floating);
+            }
         }
 
         return defaultValue;

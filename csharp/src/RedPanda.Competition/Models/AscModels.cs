@@ -243,6 +243,11 @@ public sealed class AscSubmissionResult
     {
         get
         {
+            if (TimeMs <= 0 && MemoryBytes <= 0)
+            {
+                return "网站未返回时间/内存";
+            }
+
             var time = TimeMs > 0 ? $"{TimeMs} ms" : "时间 ?";
             var memory = MemoryBytes > 0
                 ? $"{MemoryBytes / 1024.0 / 1024.0:F1} MB"
@@ -292,6 +297,8 @@ public sealed class AscProblemLink
     public string LastVerdict { get; set; } = string.Empty;
 
     public string LastSubmissionId { get; set; } = string.Empty;
+
+    public DateTime LastSubmittedAtUtc { get; set; }
 
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 

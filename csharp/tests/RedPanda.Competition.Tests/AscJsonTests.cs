@@ -130,6 +130,33 @@ public sealed class AscJsonTests
         Assert.Equal(100, done.Score);
     }
 
+    [Fact]
+    public void ParseSubmission_ReadsDecimalAndAlternativeTimeFields()
+    {
+        using var doc = Parse("""
+            {"id":9,"subIsPass":1,"subStatic":"答案正确","timeCost":12.0,"memory_cost":512.0}
+            """);
+
+        var result = AscJson.ParseSubmission(doc.RootElement);
+
+        Assert.Equal(12, result.TimeMs);
+        Assert.Equal(512, result.MemoryBytes);
+        Assert.NotEqual("网站未返回时间/内存", result.PerformanceText);
+    }
+
+    [Fact]
+    public void ParseSubmission_ReadsAlternativeNames()
+    {
+        using var doc = Parse("""
+            {"id":10,"subIsPass":1,"subStatic":"通过","timeUsed":"15","memoryUsed":"1024"}
+            """);
+
+        var result = AscJson.ParseSubmission(doc.RootElement);
+
+        Assert.Equal(15, result.TimeMs);
+        Assert.Equal(1024, result.MemoryBytes);
+    }
+
     [Theory]
     [InlineData("答案正确", "AC")]
     [InlineData("答案错误", "WA")]

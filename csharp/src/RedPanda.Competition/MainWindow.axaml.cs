@@ -57,6 +57,8 @@ public partial class MainWindow : Window
     private bool _suppressCaseReset;
     private bool _restorePromptShown;
     private AscWindow? _ascWindow;
+    private bool _ascSubmissionBusy;
+    private CancellationTokenSource? _ascSubmissionCts;
     private int? _activeTimeLimitMs;
     private int? _activeMemoryLimitMb;
     private CancellationTokenSource? _operationCts;
@@ -212,6 +214,8 @@ public partial class MainWindow : Window
 
     private async Task HandleCloseAsync()
     {
+        _ascSubmissionCts?.Cancel();
+
         if (_isBusy)
         {
             _operationCts?.Cancel();
@@ -603,6 +607,11 @@ public partial class MainWindow : Window
 
     private void Aisichuang_Click(object? sender, RoutedEventArgs e)
     {
+        OpenAscWindow();
+    }
+
+    private void OpenAscWindow()
+    {
         if (_ascWindow is { IsVisible: true })
         {
             _ascWindow.Activate();
@@ -612,6 +621,285 @@ public partial class MainWindow : Window
         _ascWindow = new AscWindow(this);
         _ascWindow.Closed += (_, _) => _ascWindow = null;
         _ascWindow.Show(this);
+    }
+
+    private async void AscSubmit_Click(object? sender, RoutedEventArgs e)
+    {
+        await SubmitCurrentFileToAscAsync();
+    }
+
+    public async Task<bool> SubmitCurrentFileToAscAsync(Window? dialogOwner = null)
+    {
+        if (_ascSubmissionBusy)
+        {
+            return false;
+        }
+
+        if (_isBusy)
+        {
+            StatusText.Text = "正在编译/运行，稍后再交题";
+            return false;
+        }
+
+        _ascSubmissionBusy = true;
+        AscSubmitButton.IsEnabled = false;
+        CompileButton.IsEnabled = false;
+        RunButton.IsEnabled = false;
+        CompileRunButton.IsEnabled = false;
+        RunAllButton.IsEnabled = false;
+        StopButton.IsVisible = true;
+        StopButton.IsEnabled = true;
+        _ascSubmissionCts = new CancellationTokenSource();
+
+        try
+        {
+            return await SubmitCurrentFileToAscCoreAsync(dialogOwner, _ascSubmissionCts.Token);
+        }
+        finally
+        {
+            _ascSubmissionBusy = false;
+            _ascSubmissionCts?.Dispose();
+            _ascSubmissionCts = null;
+            AscSubmitButton.IsEnabled = !_isBusy;
+
+            if (!_isBusy)
+            {
+                CompileButton.IsEnabled = true;
+                RunButton.IsEnabled = true;
+                CompileRunButton.IsEnabled = true;
+                RunAllButton.IsEnabled = true;
+                StopButton.IsVisible = false;
+            }
+
+            StopButton.IsEnabled = true;
+        }
+    }
+
+    private async Task<bool> SubmitCurrentFileToAscCoreAsync(
+        Window? dialogOwner,
+        CancellationToken cancellationToken)
+    {
+        var ascSettings = AscSettingsStore.Load();
+        var owner = dialogOwner ?? this;
+
+        if (!ascSettings.Session.IsValid)
+        {
+            await Dialogs.ShowMessageAsync(owner, "需要登录爱思创", "请先在“爱思创”窗口登录，然后再交题。");
+            OpenAscWindow();
+            return false;
+        }
+
+        if (!ascSettings.EnableOnlineSubmit)
+        {
+            await Dialogs.ShowMessageAsync(
+                owner,
+                "在线提交已关闭",
+                "请在“爱思创 → 账号与设置”中勾选“允许在线提交（会写入爱思创生产站点）”。");
+            OpenAscWindow();
+            return false;
+        }
+
+        var current = await GetCurrentCodeForAscSubmissionAsync();
+        if (current is null)
+        {
+            StatusText.Text = "已取消交题";
+            return false;
+        }
+
+        var (code, sourcePath) = current.Value;
+        var link = AscLinkStore.LoadOrInfer(sourcePath);
+        if (link is null || string.IsNullOrWhiteSpace(link.DisplayId))
+        {
+            await Dialogs.ShowMessageAsync(
+                owner,
+                "没有关联题目",
+                "当前文件没有爱思创题目链接。请先导入题目，或把文件命名为题号（如 A1131.cpp）。");
+            return false;
+        }
+
+        try
+        {
+            using var client = new AscClient(baseUrl: ascSettings.BaseUrl);
+            client.SetSession(ascSettings.Session);
+
+            if (string.IsNullOrWhiteSpace(link.ProblemId))
+            {
+                StatusText.Text = $"正在解析 {link.DisplayId}…";
+                var problem = await client.FindProblemAsync(link.DisplayId, cancellationToken);
+                link.ProblemId = problem.ProblemId;
+                if (string.IsNullOrWhiteSpace(link.Title))
+                {
+                    link.Title = problem.Title;
+                }
+
+                AscLinkStore.Save(sourcePath, link);
+                AppendRunLog($"爱思创：{link.DisplayId} → 内部 id {link.ProblemId}");
+            }
+
+            var where = link.IsTask
+                ? (link.Source == AscProblemSource.Work ? "作业" : "班测") + " " + link.TaskName
+                : "题库";
+
+            var confirmed = await Dialogs.ConfirmAsync(
+                owner,
+                "在线提交",
+                $"将 {link.DisplayId}（{where}）提交到爱思创生产站点。\n\n这会写入线上记录，是否继续？",
+                "提交",
+                "取消");
+
+            if (!confirmed)
+            {
+                StatusText.Text = "已取消交题";
+                return false;
+            }
+
+            StatusText.Text = "正在提交…";
+            AppendRunLog($"爱思创：提交 {link.DisplayId}…");
+
+            var submissionId = await client.SubmitCodeAsync(
+                code,
+                ascSettings.SubmitLanguage,
+                link.ProblemId,
+                cancellationToken);
+
+            AppendRunLog($"爱思创：submission {submissionId}");
+
+            AscSubmissionResult result;
+            var deadline = DateTime.UtcNow.AddMilliseconds(AscConstants.PollTimeoutMs);
+
+            while (true)
+            {
+                await Task.Delay(AscConstants.PollIntervalMs, cancellationToken);
+                result = await client.PollSubmissionAsync(
+                    submissionId,
+                    link.ProblemId,
+                    cancellationToken);
+                StatusText.Text = $"判题中：{result.VerdictText}";
+
+                if (result.IsFinal)
+                {
+                    break;
+                }
+
+                if (DateTime.UtcNow > deadline)
+                {
+                    throw new AscApiException("判题超时，请稍后在网站上查看结果。");
+                }
+            }
+
+            if (link.IsTask && !string.IsNullOrWhiteSpace(link.TaskId))
+            {
+                try
+                {
+                    if (link.Source == AscProblemSource.Work)
+                    {
+                        await client.RegisterWorkAnswerAsync(
+                            link.TaskId,
+                            link.ProblemId,
+                            code,
+                            ascSettings.SubmitLanguage,
+                            result,
+                            cancellationToken);
+                    }
+                    else
+                    {
+                        await client.RegisterTestAnswerAsync(
+                            link.TaskId,
+                            link.ProblemId,
+                            result,
+                            cancellationToken);
+                    }
+
+                    AppendRunLog("爱思创：已回填任务状态。");
+                }
+                catch (AscAuthException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    AppendRunLog("爱思创：判题成功，但回填任务失败：" + ex.Message);
+                }
+            }
+
+            link.LastVerdict = result.Verdict;
+            link.LastSubmissionId = submissionId;
+            link.LastSubmittedAtUtc = DateTime.UtcNow;
+            AscLinkStore.Save(sourcePath, link);
+            UpdateAscStatusForCurrentFile(link);
+            _ascWindow?.NotifySubmissionResult(link, result);
+
+            StatusText.Text = $"交题完成：{result.VerdictText} · {result.PerformanceText}";
+            AppendRunLog(
+                $"爱思创：{result.VerdictText}，{result.PerformanceText}，得分 {result.Score}");
+
+            if (!string.IsNullOrWhiteSpace(result.Feedback))
+            {
+                AppendRunLog("反馈：" + result.Feedback);
+            }
+
+            if (!result.Passed || !string.IsNullOrWhiteSpace(result.Feedback))
+            {
+                await Dialogs.ShowMessageAsync(
+                    owner,
+                    result.Passed ? "提交完成" : "提交结果",
+                    FormatAscSubmissionResult(link, result, submissionId));
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText.Text = "交题已取消";
+            AppendRunLog("爱思创：交题已取消。");
+            return false;
+        }
+        catch (AscAuthException ex)
+        {
+            var stale = AscSettingsStore.Load();
+            stale.Session = new AscSession { BaseUrl = stale.BaseUrl };
+            AscSettingsStore.Save(stale);
+            _ascWindow?.HandleSessionExpired();
+
+            await Dialogs.ShowMessageAsync(
+                owner,
+                "登录已过期",
+                ex.Message + "\n\n请重新打开“爱思创”登录。");
+            OpenAscWindow();
+            return false;
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "交题失败";
+            AppendRunLog("爱思创交题失败：" + ex.Message);
+            await Dialogs.ShowMessageAsync(owner, "交题失败", ex.Message);
+            return false;
+        }
+    }
+
+    private static string FormatAscSubmissionResult(
+        AscProblemLink link,
+        AscSubmissionResult result,
+        string submissionId)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"{link.DisplayId} {link.Title}".Trim());
+        builder.AppendLine($"提交号：{submissionId}");
+        builder.AppendLine($"结果：{result.VerdictText}");
+        builder.AppendLine($"时间/内存：{result.PerformanceText}");
+        builder.AppendLine($"得分：{result.Score}");
+
+        if (link.IsTask)
+        {
+            builder.AppendLine($"任务：{link.TaskName}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.Feedback))
+        {
+            builder.AppendLine().AppendLine("反馈：").AppendLine(result.Feedback.Trim());
+        }
+
+        return builder.ToString().TrimEnd();
     }
 
     public async Task<AscImportResult?> ImportAscProblemAsync(
@@ -690,12 +978,67 @@ public partial class MainWindow : Window
         return (CodeEditor.Text ?? string.Empty, _currentFilePath);
     }
 
+    private void UpdateAscStatusForCurrentFile(AscProblemLink? link)
+    {
+        if (AscStatusText is null)
+        {
+            return;
+        }
+
+        if (link is null || !link.IsValid)
+        {
+            AscStatusText.Text = "爱思创：未关联";
+            ToolTip.SetTip(
+                AscStatusText,
+                "当前文件没有关联爱思创题目。从“爱思创”导入，或把文件命名为题号（如 A1131.cpp）。");
+            return;
+        }
+
+        var verdictSuffix = string.IsNullOrWhiteSpace(link.LastVerdict)
+            ? string.Empty
+            : " · " + link.LastVerdict;
+        AscStatusText.Text = $"爱思创：{link.DisplayId}{verdictSuffix}";
+
+        var tip = new StringBuilder();
+        tip.Append(link.DisplayId);
+        if (!string.IsNullOrWhiteSpace(link.Title))
+        {
+            tip.Append(' ').Append(link.Title);
+        }
+
+        tip.AppendLine();
+        if (link.IsTask)
+        {
+            tip.Append("任务：").AppendLine(link.TaskName);
+        }
+
+        if (!string.IsNullOrWhiteSpace(link.LastVerdict))
+        {
+            tip.Append("上次提交：").Append(link.LastVerdict);
+            if (!string.IsNullOrWhiteSpace(link.LastSubmissionId))
+            {
+                tip.Append("（").Append(link.LastSubmissionId).Append('）');
+            }
+
+            tip.AppendLine();
+        }
+
+        if (link.LastSubmittedAtUtc > DateTime.MinValue)
+        {
+            tip.Append("时间：")
+                .Append(link.LastSubmittedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
+        }
+
+        ToolTip.SetTip(AscStatusText, tip.ToString().TrimEnd());
+    }
+
     private void ApplyAscLimitsForPath(string? path)
     {
         _activeTimeLimitMs = null;
         _activeMemoryLimitMb = null;
 
         var link = AscLinkStore.Load(path);
+        UpdateAscStatusForCurrentFile(link);
         if (link is null)
         {
             return;
@@ -1854,6 +2197,7 @@ public partial class MainWindow : Window
         RunButton.IsEnabled = false;
         CompileRunButton.IsEnabled = false;
         RunAllButton.IsEnabled = false;
+        AscSubmitButton.IsEnabled = false;
         SelectAllCheckBox.IsEnabled = false;
         StopButton.IsVisible = true;
         StopButton.IsEnabled = true;
@@ -1868,6 +2212,7 @@ public partial class MainWindow : Window
         RunButton.IsEnabled = true;
         CompileRunButton.IsEnabled = true;
         RunAllButton.IsEnabled = true;
+        AscSubmitButton.IsEnabled = !_ascSubmissionBusy;
         SelectAllCheckBox.IsEnabled = true;
         StopButton.IsVisible = false;
         StopButton.IsEnabled = true;
@@ -1877,6 +2222,7 @@ public partial class MainWindow : Window
     private void Stop_Click(object? sender, RoutedEventArgs e)
     {
         _operationCts?.Cancel();
+        _ascSubmissionCts?.Cancel();
         StopButton.IsEnabled = false;
         StatusText.Text = "正在停止…";
     }

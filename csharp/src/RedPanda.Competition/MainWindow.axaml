@@ -57,6 +57,10 @@
         </StackPanel>
 
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3">
+          <Button x:Name="AscSubmitButton"
+                  Classes="toolbar"
+                  Click="AscSubmit_Click"
+                  ToolTip.Tip="提交当前文件到爱思创（使用本地题目链接，不需要重开爱思创窗口）">交题</Button>
           <Button Classes="toolbar"
                   Click="Aisichuang_Click"
                   ToolTip.Tip="登录爱思创，获取班级测验/作业与题库题目">爱思创</Button>
@@ -81,6 +85,11 @@
                    TextTrimming="CharacterEllipsis"
                    Margin="0,0,12,0" />
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">
+          <TextBlock x:Name="AscStatusText"
+                     Classes="hint"
+                     Text="爱思创：未关联"
+                     MaxWidth="190"
+                     TextTrimming="CharacterEllipsis" />
           <TextBlock x:Name="CompilerStatusText" Classes="hint" Text="正在检测 g++…" />
           <TextBlock x:Name="CaretText" Classes="hint" Text="行 1，列 1" />
           <TextBlock x:Name="FileEncodingText" Classes="hint" Text="UTF-8" />

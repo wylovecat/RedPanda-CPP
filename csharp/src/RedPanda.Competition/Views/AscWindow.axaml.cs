@@ -24,6 +24,7 @@ public partial class AscWindow : Window
     private bool _busy;
     private bool _opened;
     private bool _closed;
+    private bool _lastTaskRestoreAttempted;
 
     public AscWindow()
         : this(null)
@@ -81,6 +82,7 @@ public partial class AscWindow : Window
             Log("会话有效。");
             await TryLoadClassesAsync(cancellationToken);
             SetStatus("登录状态已恢复");
+            await TryRestoreLastTaskAsync(cancellationToken);
         });
     }
 
@@ -258,10 +260,22 @@ public partial class AscWindow : Window
 
         var baseUrl = BaseUrlBox.Text?.Trim() ?? AscSettings.DefaultBaseUrl;
 
+        var previousPhone = _settings.LastPhone;
+
         await RunOperationAsync("正在登录…", async cancellationToken =>
         {
             _client.SetBaseUrl(baseUrl);
             var session = await _client.LoginAsync(phone, password, cancellationToken);
+
+            if (!string.Equals(previousPhone, phone, StringComparison.OrdinalIgnoreCase))
+            {
+                _settings.LastTaskId = string.Empty;
+                _settings.LastTaskName = string.Empty;
+                _settings.LastTaskKind = 0;
+                _settings.LastClassId = string.Empty;
+                _settings.LastClassName = string.Empty;
+                _lastTaskRestoreAttempted = false;
+            }
 
             _settings.BaseUrl = _client.BaseUrl;
             _settings.Session = session;
@@ -272,6 +286,7 @@ public partial class AscWindow : Window
             Log($"登录成功：{AscJson.MaskAccount(phone)}（{session.Role}）。");
             await TryLoadClassesAsync(cancellationToken);
             SetStatus("登录成功");
+            await TryRestoreLastTaskAsync(cancellationToken);
         });
     }
 
@@ -285,6 +300,7 @@ public partial class AscWindow : Window
         _client.ClearSession();
         _settings.Session = new AscSession { BaseUrl = _settings.BaseUrl };
         AscSettingsStore.Save(_settings);
+        _lastTaskRestoreAttempted = false;
 
         _classes.Clear();
         _tasks.Clear();
@@ -452,38 +468,109 @@ public partial class AscWindow : Window
 
     private async Task OpenTaskAsync(AscTaskInfo task, AscClassInfo? classInfo)
     {
-        await RunOperationAsync("正在加载任务题目…", async cancellationToken =>
+        await RunOperationAsync(
+            "正在加载任务题目…",
+            cancellationToken => LoadTaskProblemsCoreAsync(task, classInfo, cancellationToken));
+    }
+
+    private async Task LoadTaskProblemsCoreAsync(
+        AscTaskInfo task,
+        AscClassInfo? classInfo,
+        CancellationToken cancellationToken)
+    {
+        var problems = await _client.ListTaskProblemsAsync(task.Source, task.TaskId, cancellationToken);
+
+        _currentTask = task;
+        _currentClass = classInfo;
+        _taskProblems.Clear();
+        _taskProblems.AddRange(problems);
+        TaskProblemList.ItemsSource = null;
+        TaskProblemList.ItemsSource = _taskProblems;
+        if (_taskProblems.Count > 0)
         {
-            var problems = await _client.ListTaskProblemsAsync(task.Source, task.TaskId, cancellationToken);
+            TaskProblemList.SelectedIndex = 0;
+        }
 
-            _currentTask = task;
-            _currentClass = classInfo;
-            _taskProblems.Clear();
-            _taskProblems.AddRange(problems);
-            TaskProblemList.ItemsSource = null;
-            TaskProblemList.ItemsSource = _taskProblems;
-            if (_taskProblems.Count > 0)
+        TaskIdBox.Text = task.TaskId;
+
+        _settings.LastTaskKind = task.Source == AscProblemSource.Work ? 1 : 0;
+        _settings.LastTaskId = task.TaskId;
+        _settings.LastTaskName = task.TaskName;
+        if (classInfo is not null)
+        {
+            _settings.LastClassId = classInfo.ClassId;
+            _settings.LastClassName = classInfo.DisplayName;
+        }
+
+        AscSettingsStore.Save(_settings);
+
+        Log($"任务 {task.TaskId}：{problems.Count} 道编程题。");
+        TaskStatusText.Text = $"{task.TaskName}：{problems.Count} 道编程题";
+        SetStatus($"已加载 {task.TaskName}");
+    }
+
+    private async Task TryRestoreLastTaskAsync(CancellationToken cancellationToken)
+    {
+        if (_lastTaskRestoreAttempted)
+        {
+            return;
+        }
+
+        _lastTaskRestoreAttempted = true;
+
+        if (string.IsNullOrWhiteSpace(_settings.LastTaskId))
+        {
+            return;
+        }
+
+        try
+        {
+            var source = _settings.LastTaskKind == 1 ? AscProblemSource.Work : AscProblemSource.Test;
+            var taskName = string.IsNullOrWhiteSpace(_settings.LastTaskName)
+                ? (source == AscProblemSource.Work ? "作业 " : "班测 ") + _settings.LastTaskId
+                : _settings.LastTaskName;
+
+            var task = new AscTaskInfo
             {
-                TaskProblemList.SelectedIndex = 0;
+                Source = source,
+                TaskId = _settings.LastTaskId,
+                TaskName = taskName
+            };
+
+            AscClassInfo? classInfo = null;
+            if (!string.IsNullOrWhiteSpace(_settings.LastClassId))
+            {
+                var classIndex = _classes.FindIndex(item =>
+                    string.Equals(item.ClassId, _settings.LastClassId, StringComparison.Ordinal));
+                classInfo = classIndex >= 0
+                    ? _classes[classIndex]
+                    : new AscClassInfo
+                    {
+                        ClassId = _settings.LastClassId,
+                        ClassName = _settings.LastClassName
+                    };
+
+                if (classIndex >= 0)
+                {
+                    ClassCombo.SelectedIndex = classIndex;
+                }
             }
 
-            TaskIdBox.Text = task.TaskId;
-
-            _settings.LastTaskKind = task.Source == AscProblemSource.Work ? 1 : 0;
-            _settings.LastTaskId = task.TaskId;
-            _settings.LastTaskName = task.TaskName;
-            if (classInfo is not null)
-            {
-                _settings.LastClassId = classInfo.ClassId;
-                _settings.LastClassName = classInfo.DisplayName;
-            }
-
-            AscSettingsStore.Save(_settings);
-
-            Log($"任务 {task.TaskId}：{problems.Count} 道编程题。");
-            TaskStatusText.Text = $"{task.TaskName}：{problems.Count} 道编程题";
-            SetStatus($"已加载 {task.TaskName}");
-        });
+            TaskKindCombo.SelectedIndex = source == AscProblemSource.Work ? 1 : 0;
+            SetStatus($"正在恢复上次任务 {taskName}…");
+            await LoadTaskProblemsCoreAsync(task, classInfo, cancellationToken);
+            Log($"已恢复上次任务：{taskName}");
+            SetStatus($"已恢复上次任务 {taskName}");
+        }
+        catch (AscAuthException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Log("恢复上次任务失败：" + ex.Message);
+            SetStatus("上次任务恢复失败，可手动加载");
+        }
     }
 
     private void BankSearchBox_KeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
@@ -582,10 +669,12 @@ public partial class AscWindow : Window
 
         SaveSettingsFromUi();
 
-        await RunOperationAsync("正在下载题面与样例…", async cancellationToken =>
+        await RunOperationAsync("正在下载样例…", async cancellationToken =>
         {
+            // The statement and samples share one endpoint; the samples are
+            // required for local testing, but the statement is only shown on
+            // demand and never forces the Statement tab open.
             var statement = await _client.FetchStatementAsync(displayId, title, cancellationToken);
-            ShowStatement(statement, null);
 
             var problem = new AscProblemRef
             {
@@ -609,10 +698,10 @@ public partial class AscWindow : Window
                 return;
             }
 
-            _currentStatementPath = result.StatementPath;
-            ShowStatement(statement, result.StatementPath);
+            ShowStatement(statement, result.StatementPath, switchToTab: false);
 
             Log($"已导入 {result.Link.DisplayId}：{result.SourcePath}");
+            Log($"已写入 {result.TestCases.Count} 个样例；题面可在“题面”标签按需查看。");
             SetStatus($"已导入并打开 {result.Link.DisplayId}");
             TaskStatusText.Text = result.CreatedSource ? "已新建源码并打开" : "已打开已有源码";
             BankStatusText.Text = "已导入并打开";
@@ -630,7 +719,7 @@ public partial class AscWindow : Window
         });
     }
 
-    private void ShowStatement(AscStatement statement, string? path)
+    private void ShowStatement(AscStatement statement, string? path, bool switchToTab = true)
     {
         _currentStatementPath = path;
         StatementTitleText.Text =
@@ -640,7 +729,10 @@ public partial class AscWindow : Window
             : statement.RawMarkdown;
         StatementBox.CaretIndex = 0;
         OpenStatementFileButton.IsEnabled = path is not null;
-        MainTabs.SelectedIndex = 3;
+        if (switchToTab)
+        {
+            MainTabs.SelectedIndex = 3;
+        }
     }
 
     private void OpenStatementFile_Click(object? sender, RoutedEventArgs e)
@@ -669,148 +761,35 @@ public partial class AscWindow : Window
         }
 
         SaveSettingsFromUi();
+        await _owner.SubmitCurrentFileToAscAsync(this);
+    }
 
-        if (!_settings.EnableOnlineSubmit)
+    public void NotifySubmissionResult(AscProblemLink link, AscSubmissionResult result)
+    {
+        var row = _taskProblems.FirstOrDefault(problem =>
+            string.Equals(problem.DisplayId, link.DisplayId, StringComparison.OrdinalIgnoreCase));
+        if (row is not null)
         {
-            SetStatus("请先在“账号与设置”里勾选“允许在线提交”");
-            MainTabs.SelectedIndex = 0;
-            return;
+            row.Verdict = result.Verdict;
+            var selected = TaskProblemList.SelectedItem;
+            TaskProblemList.ItemsSource = null;
+            TaskProblemList.ItemsSource = _taskProblems;
+            TaskProblemList.SelectedItem = selected;
         }
 
-        var current = await _owner.GetCurrentCodeForAscSubmissionAsync();
-        if (current is null)
-        {
-            SetStatus("当前文件没有保存，已取消提交");
-            return;
-        }
+        Log($"提交 {link.DisplayId}：{result.VerdictText}，{result.PerformanceText}");
+        SetStatus($"提交完成：{result.VerdictText}");
+        TaskStatusText.Text = $"{link.DisplayId}：{result.VerdictText}";
+    }
 
-        var (code, sourcePath) = current.Value;
-        var link = AscLinkStore.LoadOrInfer(sourcePath);
-        if (link is null || string.IsNullOrWhiteSpace(link.DisplayId))
-        {
-            SetStatus("当前文件没有关联爱思创题目；请先导入，或把文件命名为题号（如 A1131.cpp）");
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(link.ProblemId))
-        {
-            await RunOperationAsync("正在解析题号…", async cancellationToken =>
-            {
-                var problem = await _client.FindProblemAsync(link.DisplayId, cancellationToken);
-                link.ProblemId = problem.ProblemId;
-                link.Title = problem.Title;
-                AscLinkStore.Save(sourcePath, link);
-                Log($"题号解析：{link.DisplayId} → 内部 id {link.ProblemId}");
-            });
-
-            if (string.IsNullOrWhiteSpace(link.ProblemId))
-            {
-                return;
-            }
-        }
-
-        var where = link.IsTask
-            ? (link.Source == AscProblemSource.Work ? "作业" : "班测") + " " + link.TaskName
-            : "题库";
-
-        var confirmed = await Dialogs.ConfirmAsync(
-            this,
-            "在线提交",
-            $"将 {link.DisplayId}（{where}）提交到爱思创生产站点。\n\n这会写入线上记录，是否继续？",
-            "提交",
-            "取消");
-
-        if (!confirmed)
-        {
-            SetStatus("已取消提交");
-            return;
-        }
-
-        await RunOperationAsync("正在提交…", async cancellationToken =>
-        {
-            var language = _settings.SubmitLanguage;
-            var submissionId = await _client.SubmitCodeAsync(code, language, link.ProblemId, cancellationToken);
-            Log($"已提交：submission {submissionId}");
-
-            var deadline = DateTime.UtcNow.AddMilliseconds(AscConstants.PollTimeoutMs);
-            AscSubmissionResult? result = null;
-
-            while (true)
-            {
-                await Task.Delay(AscConstants.PollIntervalMs, cancellationToken);
-                result = await _client.PollSubmissionAsync(submissionId, link.ProblemId, cancellationToken);
-                SetStatus($"判题中：{result.VerdictText}");
-
-                if (result.IsFinal)
-                {
-                    break;
-                }
-
-                if (DateTime.UtcNow > deadline)
-                {
-                    throw new AscApiException("判题超时，请稍后在网站上查看结果。");
-                }
-            }
-
-            Log($"结果：{result.VerdictText}，{result.PerformanceText}，得分 {result.Score}");
-            if (!string.IsNullOrWhiteSpace(result.Feedback))
-            {
-                Log("反馈：" + result.Feedback);
-            }
-
-            if (link.IsTask && !string.IsNullOrWhiteSpace(link.TaskId))
-            {
-                try
-                {
-                    if (link.Source == AscProblemSource.Work)
-                    {
-                        await _client.RegisterWorkAnswerAsync(
-                            link.TaskId,
-                            link.ProblemId,
-                            code,
-                            language,
-                            result,
-                            cancellationToken);
-                    }
-                    else
-                    {
-                        await _client.RegisterTestAnswerAsync(
-                            link.TaskId,
-                            link.ProblemId,
-                            result,
-                            cancellationToken);
-                    }
-
-                    Log("已回填任务状态。");
-                }
-                catch (AscAuthException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    Log("判题成功，但回填任务失败：" + ex.Message);
-                }
-            }
-
-            link.LastVerdict = result.Verdict;
-            link.LastSubmissionId = submissionId;
-            AscLinkStore.Save(sourcePath, link);
-
-            var row = _taskProblems.FirstOrDefault(problem =>
-                string.Equals(problem.DisplayId, link.DisplayId, StringComparison.OrdinalIgnoreCase));
-            if (row is not null)
-            {
-                row.Verdict = result.Verdict;
-                var selected = TaskProblemList.SelectedItem;
-                TaskProblemList.ItemsSource = null;
-                TaskProblemList.ItemsSource = _taskProblems;
-                TaskProblemList.SelectedItem = selected;
-            }
-
-            SetStatus($"提交完成：{result.VerdictText} · {result.PerformanceText}");
-            TaskStatusText.Text = $"{link.DisplayId}：{result.VerdictText}";
-        });
+    public void HandleSessionExpired()
+    {
+        _client.ClearSession();
+        _settings.Session = new AscSession { BaseUrl = _settings.BaseUrl };
+        AscSettingsStore.Save(_settings);
+        UpdateUi();
+        SetStatus("登录已过期，请重新登录");
+        Log("登录已过期，请重新登录。");
     }
 
     private async void BrowseTaskRoot_Click(object? sender, RoutedEventArgs e)
@@ -827,6 +806,11 @@ public partial class AscWindow : Window
             _settings.TaskRootDir = path;
             AscSettingsStore.Save(_settings);
         }
+    }
+
+    private void OnlineSubmitCheckBox_Click(object? sender, RoutedEventArgs e)
+    {
+        SaveSettingsFromUi();
     }
 
     private void SaveSettingsFromUi()

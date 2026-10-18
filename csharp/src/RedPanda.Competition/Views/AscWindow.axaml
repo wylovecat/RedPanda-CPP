@@ -111,7 +111,8 @@
               <CheckBox Grid.Row="3"
                         Grid.Column="1"
                         x:Name="OnlineSubmitCheckBox"
-                        Content="允许在线提交（会写入爱思创生产站点）" />
+                        Content="允许在线提交（会写入爱思创生产站点）"
+                        Click="OnlineSubmitCheckBox_Click" />
             </Grid>
 
             <TextBlock Classes="hint"
