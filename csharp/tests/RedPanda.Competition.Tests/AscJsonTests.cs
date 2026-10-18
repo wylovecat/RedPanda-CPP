@@ -157,6 +157,43 @@ public sealed class AscJsonTests
         Assert.Equal(1024, result.MemoryBytes);
     }
 
+    [Fact]
+    public void ParseSubmission_ReadsCompileInfoCasePerformance()
+    {
+        using var doc = Parse("""
+            {
+              "subIsPass":1,"subStatic":"答案正确",
+              "infoVo":{"data":[
+                {"test_case":1,"feedback":"AC","real_time":8,"memory":524288},
+                {"test_case":2,"feedback":"AC","real_time":15.0,"memory":1048576}
+              ]}
+            }
+            """);
+
+        var result = AscJson.ParseSubmission(doc.RootElement);
+
+        Assert.Equal(15, result.TimeMs);
+        Assert.Equal(1048576, result.MemoryBytes);
+        Assert.Equal("15 ms · 1.0 MB", result.PerformanceText);
+    }
+
+    [Fact]
+    public void ParseSubmission_KeepsLargerOfFlatAndCasePerformance()
+    {
+        using var doc = Parse("""
+            {
+              "subIsPass":1,"subStatic":"答案正确",
+              "timeCost":12,"memoryCost":2097152,
+              "infoVo":{"data":[{"real_time":30,"memory":1048576}]}
+            }
+            """);
+
+        var result = AscJson.ParseSubmission(doc.RootElement);
+
+        Assert.Equal(30, result.TimeMs);
+        Assert.Equal(2097152, result.MemoryBytes);
+    }
+
     [Theory]
     [InlineData("答案正确", "AC")]
     [InlineData("答案错误", "WA")]

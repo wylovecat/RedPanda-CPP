@@ -80,6 +80,46 @@ public sealed class AscClientTests
     }
 
     [Fact]
+    public async Task FetchSubmissionDetail_UsesCompileInfoEndpointAndReadsCaseStats()
+    {
+        var handler = new FakeHttpMessageHandler(
+            Json("""
+                {
+                  "code":200,"msg":"ok",
+                  "data":{
+                    "subIsPass":1,"subStatic":"答案正确",
+                    "infoVo":{"data":[
+                      {"test_case":1,"feedback":"AC","real_time":8,"memory":524288},
+                      {"test_case":2,"feedback":"AC","real_time":15,"memory":1048576}
+                    ]}
+                  }
+                }
+                """));
+
+        using var client = new AscClient(handler, "https://example.test/tiku");
+        client.SetSession(new AscSession
+        {
+            BaseUrl = "https://example.test/tiku",
+            Satoken = "tok",
+            SessionId = "sid",
+            UserId = "42",
+            Role = "student"
+        });
+
+        var result = await client.FetchSubmissionDetailAsync("2635935");
+
+        Assert.Equal("2635935", result.Id);
+        Assert.Equal(15, result.TimeMs);
+        Assert.Equal(1048576, result.MemoryBytes);
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Get, request.Method);
+        Assert.EndsWith("/studentsSubmitTk/getOneBySubId", request.Uri.AbsolutePath);
+        Assert.Contains("id=2635935", request.Uri.Query);
+        Assert.Equal("tok", request.Header("satoken"));
+    }
+
+    [Fact]
     public async Task ListTaskProblems_UsesCorrectIdParameter()
     {
         var handler = new FakeHttpMessageHandler(

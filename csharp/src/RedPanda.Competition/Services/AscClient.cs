@@ -460,6 +460,28 @@ public sealed class AscClient : IDisposable
         return AscJson.ParseSubmission(data);
     }
 
+    /// <summary>
+    /// Reads the same detail payload the site's compileInfo page uses. Unlike
+    /// the polling response this one carries per-test real_time/memory values,
+    /// which is the only place the site exposes runtime and peak memory.
+    /// </summary>
+    public async Task<AscSubmissionResult> FetchSubmissionDetailAsync(
+        string submissionId,
+        CancellationToken cancellationToken = default)
+    {
+        var path = "/studentsSubmitTk/getOneBySubId?id=" + Uri.EscapeDataString(submissionId);
+        var (data, _) = await RequestAsync(
+            HttpMethod.Get, path, null, withCsrf: false, cancellationToken);
+
+        var result = AscJson.ParseSubmission(data);
+        if (string.IsNullOrWhiteSpace(result.Id))
+        {
+            result.Id = submissionId;
+        }
+
+        return result;
+    }
+
     public async Task RegisterTestAnswerAsync(
         string testId,
         string questionId,

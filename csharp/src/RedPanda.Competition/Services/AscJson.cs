@@ -572,6 +572,27 @@ public static class AscJson
             "memoryCost", "memory_cost", "memoryUsed", "memory_used",
             "subMemoryCost", "sub_memory_cost", "costMemory", "cost_memory",
             "runMemory", "run_memory");
+
+        // The polling endpoint often returns only the verdict. The result page
+        // (compileInfo) reads /studentsSubmitTk/getOneBySubId, where the runtime
+        // lives per test case as real_time and memory in bytes. Use the slowest
+        // case and the largest memory footprint as the summary when the flat
+        // timeCost/memoryCost fields are absent.
+        if (TryGet(data, "infoVo", out var infoVo) &&
+            infoVo.ValueKind == JsonValueKind.Object &&
+            TryGet(infoVo, "data", out var cases))
+        {
+            foreach (var row in Elements(cases))
+            {
+                result.TimeMs = Math.Max(
+                    result.TimeMs,
+                    Num(row, 0, "real_time", "realTime", "time", "timeCost", "time_cost"));
+                result.MemoryBytes = Math.Max(
+                    result.MemoryBytes,
+                    Num(row, 0, "memory", "memoryCost", "memory_cost", "mem"));
+            }
+        }
+
         return result;
     }
 

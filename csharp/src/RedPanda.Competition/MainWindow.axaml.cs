@@ -787,6 +787,43 @@ public partial class MainWindow : Window
                 }
             }
 
+            // /api/submission may stop at the verdict without runtime or memory.
+            // The site's own result page uses this detail endpoint, so enrich
+            // the result there before writing it back to the class task.
+            if (result.TimeMs <= 0 || result.MemoryBytes <= 0)
+            {
+                try
+                {
+                    var detail = await client.FetchSubmissionDetailAsync(
+                        submissionId,
+                        cancellationToken);
+
+                    if (result.TimeMs <= 0 && detail.TimeMs > 0)
+                    {
+                        result.TimeMs = detail.TimeMs;
+                    }
+
+                    if (result.MemoryBytes <= 0 && detail.MemoryBytes > 0)
+                    {
+                        result.MemoryBytes = detail.MemoryBytes;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(result.Feedback) &&
+                        !string.IsNullOrWhiteSpace(detail.Feedback))
+                    {
+                        result.Feedback = detail.Feedback;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    AppendRunLog("爱思创：读取判题详情失败：" + ex.Message);
+                }
+            }
+
             if (link.IsTask && !string.IsNullOrWhiteSpace(link.TaskId))
             {
                 try
