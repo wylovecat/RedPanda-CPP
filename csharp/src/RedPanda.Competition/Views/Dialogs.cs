@@ -52,6 +52,17 @@ public static class Dialogs
         };
     }
 
+    public static async Task<bool> ConfirmAsync(
+        Window owner,
+        string title,
+        string message,
+        string confirmText = "确定",
+        string cancelText = "取消")
+    {
+        var index = await ShowChoiceAsync(owner, title, message, 0, 1, confirmText, cancelText);
+        return index == 0;
+    }
+
     public static async Task<bool> AskRestoreDraftAsync(Window owner, string displayName)
     {
         var index = await ShowChoiceAsync(

@@ -56,6 +56,9 @@ public partial class MainWindow : Window
     private bool _selectAllUpdating;
     private bool _suppressCaseReset;
     private bool _restorePromptShown;
+    private AscWindow? _ascWindow;
+    private int? _activeTimeLimitMs;
+    private int? _activeMemoryLimitMb;
     private CancellationTokenSource? _operationCts;
 
     public MainWindow()
@@ -384,6 +387,7 @@ public partial class MainWindow : Window
             _settings.LastDirectory = Path.GetDirectoryName(target) ?? _settings.LastDirectory;
             _isDirty = false;
             FileEncodingText.Text = "UTF-8";
+            ApplyAscLimitsForPath(target);
             UpdateTitle();
 
             try
@@ -431,6 +435,7 @@ public partial class MainWindow : Window
 
         _currentFilePath = path;
         _isDirty = false;
+        ApplyAscLimitsForPath(path);
         FileEncodingText.Text = encodingName;
         _testSaveTimer.Stop();
         _draftTimer.Stop();
@@ -594,6 +599,117 @@ public partial class MainWindow : Window
             ? "g++ 已就绪"
             : "g++ · " + toolchainName;
         ToolTip.SetTip(CompilerStatusText, gpp);
+    }
+
+    private void Aisichuang_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_ascWindow is { IsVisible: true })
+        {
+            _ascWindow.Activate();
+            return;
+        }
+
+        _ascWindow = new AscWindow(this);
+        _ascWindow.Closed += (_, _) => _ascWindow = null;
+        _ascWindow.Show(this);
+    }
+
+    public async Task<AscImportResult?> ImportAscProblemAsync(
+        AscStatement statement,
+        AscProblemRef problem,
+        AscProblemSource source,
+        AscTaskInfo? task,
+        string? classId,
+        string? className,
+        AscSettings ascSettings)
+    {
+        if (_isBusy)
+        {
+            StatusText.Text = "正在运行，稍后再导入题目";
+            return null;
+        }
+
+        if (!await ConfirmDiscardAsync())
+        {
+            return null;
+        }
+
+        SaveTestsIfPossible();
+        _draftTimer.Stop();
+        RecoveryService.Delete();
+
+        try
+        {
+            var result = AscProblemImporter.Import(
+                statement,
+                problem,
+                source,
+                task,
+                classId,
+                className,
+                ascSettings);
+
+            var (text, encodingName) = FileEncodingService.Read(result.SourcePath);
+            ResetDocument(result.SourcePath, text, encodingName, loadTests: true);
+            ApplyAscLimitsForPath(result.SourcePath);
+
+            var limits = _activeTimeLimitMs is not null || _activeMemoryLimitMb is not null
+                ? $"（{_activeTimeLimitMs ?? _settings.TimeLimitMs} ms / {_activeMemoryLimitMb ?? _settings.MemoryLimitMb} MB）"
+                : string.Empty;
+
+            StatusText.Text = $"已导入 {result.Link.DisplayId}{limits}";
+            AppendRunLog(
+                $"爱思创：已导入 {result.Link.DisplayId} {result.Link.Title}；" +
+                $"源码 {(result.CreatedSource ? "新建" : "已存在")}，测试点 {(result.CreatedTests ? "新建" : "保留本地")}。");
+            AppendRunLog("题面文件：" + result.StatementPath);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            await Dialogs.ShowMessageAsync(this, "导入爱思创题目失败", ex.Message);
+            return null;
+        }
+    }
+
+    public async Task<(string Code, string SourcePath)?> GetCurrentCodeForAscSubmissionAsync()
+    {
+        if (_currentFilePath is null || _isDirty)
+        {
+            if (!await SaveFileAsync())
+            {
+                return null;
+            }
+        }
+
+        if (_currentFilePath is null)
+        {
+            return null;
+        }
+
+        return (CodeEditor.Text ?? string.Empty, _currentFilePath);
+    }
+
+    private void ApplyAscLimitsForPath(string? path)
+    {
+        _activeTimeLimitMs = null;
+        _activeMemoryLimitMb = null;
+
+        var link = AscLinkStore.Load(path);
+        if (link is null)
+        {
+            return;
+        }
+
+        if (link.TimeLimitMs > 0)
+        {
+            _activeTimeLimitMs = (int)Math.Clamp(link.TimeLimitMs, 100, 60_000);
+        }
+
+        if (link.MemoryLimitMb > 0)
+        {
+            _activeMemoryLimitMb = (int)Math.Clamp(link.MemoryLimitMb, 16, 8192);
+        }
     }
 
     private void ToggleTheme_Click(object? sender, RoutedEventArgs e)
@@ -975,6 +1091,8 @@ public partial class MainWindow : Window
         testCase.PeakMemoryMb = 0;
 
         var workingDirectory = Path.GetDirectoryName(_currentFilePath!) ?? Environment.CurrentDirectory;
+        var timeLimitMs = _activeTimeLimitMs ?? _settings.TimeLimitMs;
+        var memoryLimitMb = _activeMemoryLimitMb ?? _settings.MemoryLimitMb;
 
         RunResult result;
         try
@@ -983,8 +1101,8 @@ public partial class MainWindow : Window
                 executablePath,
                 workingDirectory,
                 testCase.Input,
-                _settings.TimeLimitMs,
-                _settings.MemoryLimitMb,
+                timeLimitMs,
+                memoryLimitMb,
                 _settings.OutputLimitKb * 1024,
                 cancellationToken);
         }
@@ -1038,7 +1156,7 @@ public partial class MainWindow : Window
 
         if (result.Outcome == RunOutcome.Timeout)
         {
-            AppendRunLog($"超过时限 {_settings.TimeLimitMs} ms，程序已终止。");
+            AppendRunLog($"超过时限 {timeLimitMs} ms，程序已终止。");
         }
         else if (result.Outcome == RunOutcome.OutputLimit)
         {

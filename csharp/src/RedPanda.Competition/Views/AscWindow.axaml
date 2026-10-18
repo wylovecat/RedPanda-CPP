@@ -1,0 +1,262 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:RedPanda.Competition.Models"
+        x:Class="RedPanda.Competition.Views.AscWindow"
+        Title="爱思创 · 题目与作业"
+        Width="900"
+        Height="720"
+        MinWidth="760"
+        MinHeight="600"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppWindowBrush}"
+        Icon="/AppAssets/redpanda.ico">
+
+  <DockPanel Margin="14">
+
+    <Border DockPanel.Dock="Top"
+            Classes="panel"
+            Padding="12"
+            Margin="0,0,0,8">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="3">
+          <TextBlock x:Name="AccountStatusText"
+                     Text="爱思创：未登录"
+                     FontWeight="SemiBold" />
+          <TextBlock x:Name="AccountHintText"
+                     Classes="hint"
+                     Text="登录后可拉取班级测验/作业和题库题目；密码不会保存。" />
+          <TextBlock x:Name="OperationStatusText"
+                     Classes="hint"
+                     Text="" />
+        </StackPanel>
+        <StackPanel Grid.Column="1"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    VerticalAlignment="Center">
+          <Button x:Name="SubmitButton"
+                  Classes="accent"
+                  Content="提交当前代码"
+                  Click="Submit_Click"
+                  IsEnabled="False"
+                  ToolTip.Tip="把当前编辑器中的文件提交到爱思创判题" />
+          <Button x:Name="LogoutButton"
+                  Content="退出登录"
+                  Click="Logout_Click"
+                  IsVisible="False" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Border DockPanel.Dock="Bottom"
+            Classes="panel"
+            Padding="8"
+            Margin="0,8,0,0">
+      <TextBox x:Name="LogBox"
+               Height="90"
+               IsReadOnly="True"
+               AcceptsReturn="True"
+               TextWrapping="NoWrap"
+               FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+               FontSize="12"
+               Background="{DynamicResource PanelAltBrush}"
+               BorderThickness="0"
+               ScrollViewer.HorizontalScrollBarVisibility="Auto"
+               ScrollViewer.VerticalScrollBarVisibility="Auto" />
+    </Border>
+
+    <TabControl x:Name="MainTabs">
+
+      <TabItem Header="账号与设置">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="14" Spacing="12">
+
+            <TextBlock Text="登录" FontSize="15" FontWeight="SemiBold" />
+            <Grid ColumnDefinitions="100,*" RowDefinitions="Auto,Auto" RowSpacing="8">
+              <TextBlock Text="手机号" VerticalAlignment="Center" />
+              <TextBox Grid.Column="1" x:Name="PhoneBox" PlaceholderText="登录手机号" />
+              <TextBlock Grid.Row="1" Text="密码" VerticalAlignment="Center" />
+              <TextBox Grid.Row="1"
+                       Grid.Column="1"
+                       x:Name="PasswordBox"
+                       PasswordChar="●"
+                       PlaceholderText="只用于换取会话，不会保存"
+                       KeyDown="PasswordBox_KeyDown" />
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button x:Name="LoginButton" Content="登录" Classes="accent" Click="Login_Click" />
+              <TextBlock Classes="hint"
+                         VerticalAlignment="Center"
+                         Text="登录凭证来自爱思创账号；本程序只保存会话 token。" />
+            </StackPanel>
+
+            <Border Height="1" Background="{DynamicResource BorderBrush}" />
+
+            <TextBlock Text="连接与提交" FontSize="15" FontWeight="SemiBold" />
+            <Grid ColumnDefinitions="100,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+              <TextBlock Text="站点地址" VerticalAlignment="Center" />
+              <TextBox Grid.Column="1" x:Name="BaseUrlBox" PlaceholderText="https://www.aisichuang.net/tiku" />
+
+              <TextBlock Grid.Row="1" Text="题目根目录" VerticalAlignment="Center" />
+              <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">
+                <TextBox x:Name="TaskRootBox" PlaceholderText="留空则使用“文档\RedPandaCP\Aisichuang”" />
+                <Button Grid.Column="1" Content="选择…" Click="BrowseTaskRoot_Click" Margin="8,0,0,0" />
+              </Grid>
+
+              <TextBlock Grid.Row="2" Text="提交语言" VerticalAlignment="Center" />
+              <ComboBox Grid.Row="2"
+                        Grid.Column="1"
+                        x:Name="LanguageBox"
+                        HorizontalAlignment="Stretch" />
+
+              <CheckBox Grid.Row="3"
+                        Grid.Column="1"
+                        x:Name="OnlineSubmitCheckBox"
+                        Content="允许在线提交（会写入爱思创生产站点）" />
+            </Grid>
+
+            <TextBlock Classes="hint"
+                       TextWrapping="Wrap"
+                       Text="显示上限/时限等本地运行设置仍在主窗口“设置”里。从爱思创导入题目时，题面中的时间/内存限制会写入该题目的本地链接文件，只影响当前题目。" />
+
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <TabItem Header="测验 / 作业">
+        <Grid Margin="14" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" RowSpacing="8">
+
+          <Grid x:Name="ClassRow" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <TextBlock Text="班级" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1"
+                      x:Name="ClassCombo"
+                      HorizontalAlignment="Stretch"
+                      SelectionChanged="ClassCombo_SelectionChanged" />
+            <Button Grid.Column="2" x:Name="RefreshClassesButton" Content="刷新班级" Click="RefreshClasses_Click" />
+          </Grid>
+
+          <Grid x:Name="TaskKindRow" Grid.Row="1" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <TextBlock Text="类型" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1"
+                      x:Name="TaskKindCombo"
+                      HorizontalAlignment="Stretch"
+                      SelectionChanged="TaskKindCombo_SelectionChanged" />
+            <Button Grid.Column="2" x:Name="LoadTasksButton" Content="列出任务" Click="LoadTasks_Click" />
+          </Grid>
+
+          <Grid x:Name="TaskPickRow" Grid.Row="2" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <TextBlock Text="任务" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" x:Name="TaskCombo" HorizontalAlignment="Stretch" />
+            <Button Grid.Column="2" x:Name="OpenTaskButton" Content="打开" Click="OpenTask_Click" />
+          </Grid>
+
+          <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <TextBlock Text="任务 ID" VerticalAlignment="Center" />
+            <TextBox Grid.Column="1"
+                     x:Name="TaskIdBox"
+                     PlaceholderText="直接输入班测/作业数字 ID（学生账号用）"
+                     KeyDown="TaskIdBox_KeyDown" />
+            <Button Grid.Column="2" x:Name="LoadTaskByIdButton" Content="加载" Click="LoadTaskById_Click" />
+          </Grid>
+
+          <ListBox x:Name="TaskProblemList"
+                   Grid.Row="4"
+                   Background="{DynamicResource PanelAltBrush}"
+                   BorderBrush="{DynamicResource BorderBrush}"
+                   BorderThickness="1">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="models:AscTaskProblem">
+                <Grid ColumnDefinitions="80,*,Auto" ColumnSpacing="8">
+                  <TextBlock Text="{Binding DisplayId}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding Title}"
+                             VerticalAlignment="Center"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Grid.Column="2"
+                             Text="{Binding StatusText}"
+                             VerticalAlignment="Center"
+                             FontSize="11"
+                             Foreground="{DynamicResource MutedTextBrush}" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="8">
+            <Button x:Name="ImportTaskButton" Content="导入并打开" Click="ImportTask_Click" />
+            <Button x:Name="StatementTaskButton" Content="只看题面" Click="StatementTask_Click" />
+            <TextBlock x:Name="TaskStatusText"
+                       Classes="hint"
+                       VerticalAlignment="Center" />
+          </StackPanel>
+
+        </Grid>
+      </TabItem>
+
+      <TabItem Header="题库">
+        <Grid Margin="14" RowDefinitions="Auto,*,Auto" RowSpacing="8">
+
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBox x:Name="BankSearchBox"
+                     PlaceholderText="输入题号（如 A1131）或标题关键字"
+                     KeyDown="BankSearchBox_KeyDown" />
+            <Button Grid.Column="1" x:Name="SearchBankButton" Content="搜索" Click="SearchBank_Click" />
+          </Grid>
+
+          <ListBox x:Name="BankList"
+                   Grid.Row="1"
+                   Background="{DynamicResource PanelAltBrush}"
+                   BorderBrush="{DynamicResource BorderBrush}"
+                   BorderThickness="1">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="models:AscProblemRef">
+                <Grid ColumnDefinitions="80,*" ColumnSpacing="8">
+                  <TextBlock Text="{Binding DisplayId}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding Title}"
+                             VerticalAlignment="Center"
+                             TextTrimming="CharacterEllipsis" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+            <Button x:Name="ImportBankButton" Content="导入并打开" Click="ImportBank_Click" />
+            <Button x:Name="StatementBankButton" Content="只看题面" Click="StatementBank_Click" />
+            <TextBlock x:Name="BankStatusText"
+                       Classes="hint"
+                       VerticalAlignment="Center" />
+          </StackPanel>
+
+        </Grid>
+      </TabItem>
+
+      <TabItem Header="题面">
+        <DockPanel Margin="14">
+          <StackPanel DockPanel.Dock="Top"
+                      Orientation="Horizontal"
+                      Spacing="8"
+                      Margin="0,0,0,6">
+            <Button x:Name="OpenStatementFileButton"
+                    Content="打开 Markdown 文件"
+                    Click="OpenStatementFile_Click"
+                    IsEnabled="False" />
+            <TextBlock x:Name="StatementTitleText"
+                       Classes="hint"
+                       VerticalAlignment="Center" />
+          </StackPanel>
+          <TextBox x:Name="StatementBox"
+                   IsReadOnly="True"
+                   AcceptsReturn="True"
+                   TextWrapping="NoWrap"
+                   FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+                   FontSize="12"
+                   Background="{DynamicResource PanelAltBrush}"
+                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto" />
+        </DockPanel>
+      </TabItem>
+
+    </TabControl>
+  </DockPanel>
+</Window>

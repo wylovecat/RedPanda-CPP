@@ -57,6 +57,9 @@
         </StackPanel>
 
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3">
+          <Button Classes="toolbar"
+                  Click="Aisichuang_Click"
+                  ToolTip.Tip="登录爱思创，获取班级测验/作业与题库题目">爱思创</Button>
           <Button x:Name="ThemeButton"
                   Classes="toolbar"
                   Click="ToggleTheme_Click"
