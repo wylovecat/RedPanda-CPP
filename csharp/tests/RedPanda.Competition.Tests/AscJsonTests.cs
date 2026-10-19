@@ -175,6 +175,11 @@ public sealed class AscJsonTests
         Assert.Equal(15, result.TimeMs);
         Assert.Equal(1048576, result.MemoryBytes);
         Assert.Equal("15 ms · 1.0 MB", result.PerformanceText);
+        Assert.Equal(2, result.Cases.Count);
+        Assert.Equal(1, result.Cases[0].Index);
+        Assert.Equal("AC", result.Cases[0].Verdict);
+        Assert.Equal(8, result.Cases[0].TimeMs);
+        Assert.Equal("15 ms · 1.0 MB", result.Cases[1].PerformanceText);
     }
 
     [Fact]
@@ -192,6 +197,44 @@ public sealed class AscJsonTests
 
         Assert.Equal(30, result.TimeMs);
         Assert.Equal(2097152, result.MemoryBytes);
+    }
+
+    [Fact]
+    public void ParseRanking_SortsByTotalAndReadsProblemRows()
+    {
+        using var doc = Parse("""
+            {
+              "list":[
+                {
+                  "testChartsUser":"张三","testChartsScores":80,
+                  "list":[
+                    {"name":"A1","score":100,"maxScore":2635935},
+                    {"name":"A2","score":60,"maxScore":null}
+                  ]
+                },
+                {
+                  "testChartsUser":"李四","testChartsScores":150,
+                  "list":[
+                    {"name":"A1","score":100,"maxScore":"2636000"},
+                    {"name":"A2","score":50,"maxScore":"2636001"}
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var rows = AscJson.ParseRanking(doc.RootElement);
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(1, rows[0].Rank);
+        Assert.Equal("李四", rows[0].UserName);
+        Assert.Equal(150, rows[0].TotalScore);
+        Assert.Equal(2, rows[0].Problems.Count);
+        Assert.Equal("2636000", rows[0].Problems[0].BestSubmissionId);
+        Assert.Equal(2, rows[1].Rank);
+        Assert.Equal("张三", rows[1].UserName);
+        Assert.Equal("2635935", rows[1].Problems[0].BestSubmissionId);
+        Assert.Empty(rows[1].Problems[1].BestSubmissionId);
     }
 
     [Theory]

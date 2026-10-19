@@ -101,6 +101,7 @@ public sealed class AscClientTests
         {
             BaseUrl = "https://example.test/tiku",
             Satoken = "tok",
+            CsrfToken = "csrf",
             SessionId = "sid",
             UserId = "42",
             Role = "student"
@@ -117,6 +118,65 @@ public sealed class AscClientTests
         Assert.EndsWith("/studentsSubmitTk/getOneBySubId", request.Uri.AbsolutePath);
         Assert.Contains("id=2635935", request.Uri.Query);
         Assert.Equal("tok", request.Header("satoken"));
+        Assert.Equal("csrf", request.Header("csrftoken"));
+        Assert.Equal("csrf", request.Header("X-CSRFToken"));
+    }
+
+    [Fact]
+    public async Task ResolveSubmissionRecordId_ConvertsLegacyHandle()
+    {
+        var handler = new FakeHttpMessageHandler(
+            Json("""{"code":200,"data":{"id":2635935,"subIsPass":1,"subStatic":"答案正确"}}"""));
+
+        using var client = new AscClient(handler, "https://example.test/tiku");
+        client.SetSession(new AscSession
+        {
+            BaseUrl = "https://example.test/tiku",
+            Satoken = "tok",
+            UserId = "42",
+            Role = "student"
+        });
+
+        var id = await client.ResolveSubmissionRecordIdAsync(
+            "56320d39d37b3642ced06a1bb0658247",
+            "123");
+
+        Assert.Equal("2635935", id);
+        var request = Assert.Single(handler.Requests);
+        Assert.EndsWith("/api/submission", request.Uri.AbsolutePath);
+        Assert.Contains("submission_id=56320d39d37b3642ced06a1bb0658247", request.Uri.Query);
+        Assert.Contains("tkId=123", request.Uri.Query);
+    }
+
+    [Fact]
+    public async Task ResolveSubmissionRecordId_ReturnsNumericIdWithoutRequest()
+    {
+        var handler = new FakeHttpMessageHandler();
+
+        using var client = new AscClient(handler, "https://example.test/tiku");
+        var id = await client.ResolveSubmissionRecordIdAsync("2635935", "123");
+
+        Assert.Equal("2635935", id);
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task FetchSubmissionDetail_RejectsNonNumericIdWithoutSendingRequest()
+    {
+        var handler = new FakeHttpMessageHandler();
+
+        using var client = new AscClient(handler, "https://example.test/tiku");
+        client.SetSession(new AscSession
+        {
+            BaseUrl = "https://example.test/tiku",
+            Satoken = "tok"
+        });
+
+        var ex = await Assert.ThrowsAsync<AscApiException>(
+            () => client.FetchSubmissionDetailAsync("56320d39d37b3642ced06a1bb0658247"));
+
+        Assert.Contains("数字", ex.Message);
+        Assert.Empty(handler.Requests);
     }
 
     [Fact]
@@ -142,6 +202,30 @@ public sealed class AscClientTests
         Assert.Contains("workId=55", request.Uri.Query);
         Assert.Contains("userId=42", request.Uri.Query);
         Assert.EndsWith("/student/getWorkList", request.Uri.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task FetchRanking_UsesTaskSpecificEndpoint()
+    {
+        var handler = new FakeHttpMessageHandler(
+            Json("""{"code":200,"data":{"list":[{"testChartsUser":"张三","testChartsScores":100,"list":[{"name":"A1","score":100,"maxScore":7}]}]}}"""));
+
+        using var client = new AscClient(handler, "https://example.test/tiku");
+        client.SetSession(new AscSession
+        {
+            BaseUrl = "https://example.test/tiku",
+            Satoken = "tok",
+            UserId = "42",
+            Role = "teacher"
+        });
+
+        var rows = await client.FetchRankingAsync(AscProblemSource.Test, "55");
+
+        Assert.Single(rows);
+        Assert.Equal("张三", rows[0].UserName);
+        var request = Assert.Single(handler.Requests);
+        Assert.EndsWith("/student/getTestRanking", request.Uri.AbsolutePath);
+        Assert.Contains("testId=55", request.Uri.Query);
     }
 
     [Fact]

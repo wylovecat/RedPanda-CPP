@@ -210,6 +210,63 @@ public sealed class AscTaskProblem
     }
 }
 
+public sealed class AscRankingProblem
+{
+    public string Name { get; set; } = string.Empty;
+
+    public double Score { get; set; }
+
+    public string BestSubmissionId { get; set; } = string.Empty;
+}
+
+public sealed class AscRankingRow
+{
+    public int Rank { get; set; }
+
+    public string UserName { get; set; } = string.Empty;
+
+    public double TotalScore { get; set; }
+
+    public List<AscRankingProblem> Problems { get; set; } = new();
+
+    [JsonIgnore]
+    public string DisplayText => $"{Rank}.  {UserName}";
+
+    [JsonIgnore]
+    public string ScoreText => $"{TotalScore:0.##} 分";
+
+    [JsonIgnore]
+    public string ProblemSummary => string.Join(
+        " · ",
+        Problems.Select(problem => $"{problem.Name}: {problem.Score:0.##}"));
+}
+
+public sealed class AscSubmissionCase
+{
+    public int Index { get; set; }
+
+    public string Verdict { get; set; } = string.Empty;
+
+    public string Feedback { get; set; } = string.Empty;
+
+    public long TimeMs { get; set; }
+
+    public long MemoryBytes { get; set; }
+
+    [JsonIgnore]
+    public string PerformanceText
+    {
+        get
+        {
+            var time = TimeMs > 0 ? $"{TimeMs} ms" : "? ms";
+            var memory = MemoryBytes > 0
+                ? $"{MemoryBytes / 1024.0 / 1024.0:F1} MB"
+                : "? MB";
+            return $"{time} · {memory}";
+        }
+    }
+}
+
 public sealed class AscSubmissionResult
 {
     public string Id { get; set; } = string.Empty;
@@ -231,6 +288,8 @@ public sealed class AscSubmissionResult
     public long TimeMs { get; set; }
 
     public long MemoryBytes { get; set; }
+
+    public List<AscSubmissionCase> Cases { get; set; } = new();
 
     [JsonIgnore]
     public bool Passed => Verdict == "AC" || IsPass == 1;
@@ -272,6 +331,70 @@ public sealed class AscSubmissionResult
     }
 }
 
+public sealed class AscSubmissionHistoryEntry
+{
+    public string SubmissionId { get; set; } = string.Empty;
+
+    public string DisplayId { get; set; } = string.Empty;
+
+    public string Title { get; set; } = string.Empty;
+
+    public string TaskId { get; set; } = string.Empty;
+
+    public string TaskName { get; set; } = string.Empty;
+
+    public AscProblemSource Source { get; set; } = AscProblemSource.Bank;
+
+    public string Verdict { get; set; } = string.Empty;
+
+    public long TimeMs { get; set; }
+
+    public long MemoryBytes { get; set; }
+
+    public double Score { get; set; }
+
+    public DateTime SubmittedAtUtc { get; set; }
+
+    public string SourcePath { get; set; } = string.Empty;
+
+    [JsonIgnore]
+    public string TimeText => SubmittedAtUtc == DateTime.MinValue
+        ? string.Empty
+        : SubmittedAtUtc.ToLocalTime().ToString("MM-dd HH:mm:ss");
+
+    [JsonIgnore]
+    public string DisplayText => $"{DisplayId}  {Title}".Trim();
+
+    [JsonIgnore]
+    public string VerdictText => string.IsNullOrWhiteSpace(Verdict) ? "?" : Verdict;
+
+    [JsonIgnore]
+    public string PerformanceText
+    {
+        get
+        {
+            if (TimeMs <= 0 && MemoryBytes <= 0)
+            {
+                return "时间/内存 ?";
+            }
+
+            var time = TimeMs > 0 ? $"{TimeMs} ms" : "? ms";
+            var memory = MemoryBytes > 0
+                ? $"{MemoryBytes / 1024.0 / 1024.0:F1} MB"
+                : "? MB";
+            return $"{time} · {memory}";
+        }
+    }
+
+    [JsonIgnore]
+    public string TaskText => Source == AscProblemSource.Bank
+        ? "题库"
+        : (Source == AscProblemSource.Work ? "作业 " : "班测 ") + TaskName;
+
+    [JsonIgnore]
+    public string DetailText => $"{TaskText} · {PerformanceText}";
+}
+
 public sealed class AscProblemLink
 {
     public string DisplayId { get; set; } = string.Empty;
@@ -298,6 +421,8 @@ public sealed class AscProblemLink
 
     public string LastSubmissionId { get; set; } = string.Empty;
 
+    public string LastSubmittedCodeHash { get; set; } = string.Empty;
+
     public DateTime LastSubmittedAtUtc { get; set; }
 
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
@@ -322,4 +447,6 @@ public sealed class AscImportResult
     public required bool CreatedSource { get; init; }
 
     public required bool CreatedTests { get; init; }
+
+    public bool SamplesFilled { get; init; }
 }

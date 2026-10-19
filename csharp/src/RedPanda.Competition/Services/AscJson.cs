@@ -65,7 +65,8 @@ public static class AscJson
         string[] needles =
         {
             "请登录", "请先登录", "需要登录", "未登录",
-            "登录已过期", "会话已过期", "登录失效", "重新登录"
+            "登录已过期", "会话已过期", "登录失效", "重新登录",
+            "未能读取到有效Token", "无效Token", "Token无效"
         };
 
         return needles.Any(needle => message.Contains(needle, StringComparison.Ordinal));
@@ -544,6 +545,53 @@ public static class AscJson
         return builder.ToString();
     }
 
+    public static List<AscRankingRow> ParseRanking(JsonElement data)
+    {
+        var rows = new List<AscRankingRow>();
+
+        foreach (var row in Elements(data))
+        {
+            var item = new AscRankingRow
+            {
+                UserName = Str(
+                    row,
+                    "testChartsUser", "workChartsUser",
+                    "userName", "studentName", "nickname", "name"),
+                TotalScore = Num(
+                    row,
+                    0,
+                    "testChartsScores", "workChartsScores",
+                    "totalScore", "total_score", "score")
+            };
+
+            if (TryGet(row, "list", out var problems) && problems.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var problem in problems.EnumerateArray())
+                {
+                    item.Problems.Add(new AscRankingProblem
+                    {
+                        Name = Str(problem, "name", "title", "displayId"),
+                        Score = Num(problem, 0, "score", "subScore", "workScore"),
+                        BestSubmissionId = Str(
+                            problem,
+                            "maxScore", "max_score",
+                            "submissionId", "subId", "tkSubId")
+                    });
+                }
+            }
+
+            rows.Add(item);
+        }
+
+        var ranked = rows.OrderByDescending(row => row.TotalScore).ToList();
+        for (var i = 0; i < ranked.Count; i++)
+        {
+            ranked[i].Rank = i + 1;
+        }
+
+        return ranked;
+    }
+
     public static AscSubmissionResult ParseSubmission(JsonElement data)
     {
         var result = new AscSubmissionResult();
@@ -582,14 +630,27 @@ public static class AscJson
             infoVo.ValueKind == JsonValueKind.Object &&
             TryGet(infoVo, "data", out var cases))
         {
+            var index = 0;
             foreach (var row in Elements(cases))
             {
-                result.TimeMs = Math.Max(
-                    result.TimeMs,
-                    Num(row, 0, "real_time", "realTime", "time", "timeCost", "time_cost"));
-                result.MemoryBytes = Math.Max(
-                    result.MemoryBytes,
-                    Num(row, 0, "memory", "memoryCost", "memory_cost", "mem"));
+                index++;
+                var item = new AscSubmissionCase
+                {
+                    Index = (int)Num(row, index, "test_case", "testCase", "index", "no"),
+                    Feedback = Str(row, "feedback", "result", "status"),
+                    Verdict = VerdictOfRecord(row),
+                    TimeMs = Num(row, 0, "real_time", "realTime", "time", "timeCost", "time_cost"),
+                    MemoryBytes = Num(row, 0, "memory", "memoryCost", "memory_cost", "mem")
+                };
+
+                if (item.Verdict == "?")
+                {
+                    item.Verdict = item.Feedback;
+                }
+
+                result.Cases.Add(item);
+                result.TimeMs = Math.Max(result.TimeMs, item.TimeMs);
+                result.MemoryBytes = Math.Max(result.MemoryBytes, item.MemoryBytes);
             }
         }
 

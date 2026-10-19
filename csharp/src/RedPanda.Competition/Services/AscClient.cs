@@ -403,6 +403,22 @@ public sealed class AscClient : IDisposable
         return items;
     }
 
+    public async Task<List<AscRankingRow>> FetchRankingAsync(
+        AscProblemSource source,
+        string taskId,
+        CancellationToken cancellationToken = default)
+    {
+        var isWork = source == AscProblemSource.Work;
+        var path = isWork
+            ? "/student/getWorkRanking?workId=" + Uri.EscapeDataString(taskId)
+            : "/student/getTestRanking?testId=" + Uri.EscapeDataString(taskId);
+
+        var (data, _) = await RequestAsync(
+            HttpMethod.Get, path, null, withCsrf: false, cancellationToken);
+
+        return AscJson.ParseRanking(data);
+    }
+
     public async Task<List<AscTaskProblem>> ListTaskProblemsAsync(
         AscProblemSource source,
         string taskId,
@@ -461,6 +477,33 @@ public sealed class AscClient : IDisposable
     }
 
     /// <summary>
+    /// Older versions stored the POST response handle (often a GUID) instead of
+    /// the numeric row id. The polling endpoint still accepts that handle and
+    /// returns the numeric id used by the result page.
+    /// </summary>
+    public async Task<string> ResolveSubmissionRecordIdAsync(
+        string submissionId,
+        string problemId,
+        CancellationToken cancellationToken = default)
+    {
+        var text = submissionId.Trim();
+        if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+        {
+            return text;
+        }
+
+        var result = await PollSubmissionAsync(text, problemId, cancellationToken);
+        var rowId = result.Id?.Trim() ?? string.Empty;
+        if (long.TryParse(rowId, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+        {
+            return rowId;
+        }
+
+        throw new AscApiException(
+            "无法把旧提交请求号转换为网站记录号。请在“提交记录”中输入网站上的数字提交号。");
+    }
+
+    /// <summary>
     /// Reads the same detail payload the site's compileInfo page uses. Unlike
     /// the polling response this one carries per-test real_time/memory values,
     /// which is the only place the site exposes runtime and peak memory.
@@ -469,6 +512,13 @@ public sealed class AscClient : IDisposable
         string submissionId,
         CancellationToken cancellationToken = default)
     {
+        if (!long.TryParse(submissionId.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+        {
+            throw new AscApiException(
+                "提交详情号应为数字。旧版本可能保存了提交请求号；" +
+                "请在“爱思创 → 提交记录”中输入网站上的数字提交号（如 2635935）查看。");
+        }
+
         var path = "/studentsSubmitTk/getOneBySubId?id=" + Uri.EscapeDataString(submissionId);
         var (data, _) = await RequestAsync(
             HttpMethod.Get, path, null, withCsrf: false, cancellationToken);
@@ -554,8 +604,11 @@ public sealed class AscClient : IDisposable
             request.Headers.TryAddWithoutValidation("sessionid", Session.SessionId);
         }
 
+        // The site interceptor attaches the CSRF token to every request,
+        // including GETs. Some read-only endpoints reject a session that is
+        // missing these headers, so send them whenever a token is available.
         var csrf = string.IsNullOrWhiteSpace(csrfOverride) ? Session.CsrfToken : csrfOverride;
-        if (withCsrf && !string.IsNullOrWhiteSpace(csrf))
+        if (!string.IsNullOrWhiteSpace(csrf))
         {
             request.Headers.TryAddWithoutValidation("X-CSRFToken", csrf);
             request.Headers.TryAddWithoutValidation("csrftoken", csrf);
