@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -27,6 +28,81 @@ public static class Dialogs
     public static Task ShowMessageAsync(Window owner, string title, string message)
     {
         return ShowChoiceAsync(owner, title, message, 0, 0, "确定");
+    }
+
+    /// <summary>
+    /// A read-only, scrollable view for long reports such as test-case lists.
+    /// </summary>
+    public static async Task ShowDetailsAsync(Window owner, string title, string details)
+    {
+        var completion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 680,
+            Height = 520,
+            MinWidth = 460,
+            MinHeight = 360,
+            CanResize = true,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false,
+            Background = new SolidColorBrush(
+                Color.Parse(ThemeService.IsDark ? "#24262A" : "#FFFFFF"))
+        };
+
+        var panel = new Grid
+        {
+            Margin = new Thickness(16),
+            RowDefinitions = new RowDefinitions("*,12,Auto")
+        };
+
+        var box = new TextBox
+        {
+            Text = details,
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.NoWrap,
+            FontFamily = new FontFamily("Cascadia Mono, Consolas, Microsoft YaHei UI"),
+            FontSize = 12,
+            Background = new SolidColorBrush(
+                Color.Parse(ThemeService.IsDark ? "#1B1D20" : "#F7F7F9")),
+            Padding = new Thickness(10)
+        };
+        ScrollViewer.SetHorizontalScrollBarVisibility(box, ScrollBarVisibility.Auto);
+        ScrollViewer.SetVerticalScrollBarVisibility(box, ScrollBarVisibility.Auto);
+
+        var close = new Button
+        {
+            Content = "关闭",
+            MinWidth = 84,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+        close.Classes.Add("accent");
+
+        panel.Children.Add(box);
+        Grid.SetRow(close, 2);
+        panel.Children.Add(close);
+        dialog.Content = panel;
+
+        close.Click += (_, _) => dialog.Close();
+        dialog.Closing += (_, _) => completion.TrySetResult(true);
+        dialog.AddHandler(
+            InputElement.KeyDownEvent,
+            (_, e) =>
+            {
+                if (e.Key == Key.Escape)
+                {
+                    completion.TrySetResult(true);
+                    dialog.Close();
+                }
+            },
+            RoutingStrategies.Tunnel);
+
+        await dialog.ShowDialog(owner);
+        await completion.Task;
     }
 
     public static async Task<ImportModeChoice> AskImportModeAsync(
