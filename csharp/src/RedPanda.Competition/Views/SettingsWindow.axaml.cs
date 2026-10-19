@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using RedPanda.Competition.Models;
+using RedPanda.Competition.Services;
 
 namespace RedPanda.Competition.Views;
 
@@ -18,6 +20,7 @@ public partial class SettingsWindow : Window
         _working = settings.Clone();
         InitializeComponent();
 
+        VersionText.Text = $"{AppInfo.ProductName} v{AppInfo.Version}";
         StandardBox.ItemsSource = new[] { "c++11", "c++14", "c++17", "c++20", "c++23" };
         StandardBox.SelectedItem = _working.CppStandard;
         if (StandardBox.SelectedItem is null)
@@ -99,5 +102,56 @@ public partial class SettingsWindow : Window
     private void Cancel_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         Close(null);
+    }
+
+    private async void ExportDiagnostics_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "导出诊断包",
+            SuggestedFileName = $"RedPandaCP-diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.zip",
+            DefaultExtension = "zip",
+            FileTypeChoices = new[]
+            {
+                new FilePickerFileType("ZIP 压缩包")
+                {
+                    Patterns = new[] { "*.zip" }
+                }
+            }
+        });
+
+        if (file?.TryGetLocalPath() is not { } path)
+        {
+            return;
+        }
+
+        try
+        {
+            DiagnosticsService.Export(path, _working);
+            await Dialogs.ShowMessageAsync(
+                this,
+                "诊断包",
+                "已导出到：\n" + path + "\n\n不包含登录令牌。");
+        }
+        catch (Exception ex)
+        {
+            await Dialogs.ShowMessageAsync(this, "导出诊断包失败", ex.Message);
+        }
+    }
+
+    private void OpenLogs_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(CrashLogger.LogDirectory);
+            Process.Start(new ProcessStartInfo(CrashLogger.LogDirectory)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            // Opening a folder is a convenience; ignore shell failures.
+        }
     }
 }

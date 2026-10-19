@@ -8,6 +8,8 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>RedPandaCP</AssemblyName>
     <RootNamespace>RedPanda.Competition</RootNamespace>
+    <Version>0.6.0</Version>
+    <InformationalVersion>0.6.0</InformationalVersion>
     <ApplicationIcon>AppAssets\redpanda.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>

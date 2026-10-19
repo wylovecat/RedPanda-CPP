@@ -94,6 +94,22 @@
                    TextWrapping="Wrap"
                    Text="说明：编译产物存放在 %LOCALAPPDATA%\RedPandaCP\build，源文件和测试点不会被改动。内存上限由 Windows Job Object 执行；若宿主环境禁止嵌套 Job，则只报告峰值内存。" />
 
+        <Border Height="1" Background="{DynamicResource BorderBrush}" />
+
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock x:Name="VersionText"
+                     Classes="hint"
+                     VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <Button Content="导出诊断包"
+                    Click="ExportDiagnostics_Click"
+                    ToolTip.Tip="版本、编译器、设置与日志（不含登录令牌）" />
+            <Button Content="打开日志目录"
+                    Click="OpenLogs_Click"
+                    ToolTip.Tip="程序异常记录与诊断日志" />
+          </StackPanel>
+        </Grid>
+
       </StackPanel>
     </ScrollViewer>
   </DockPanel>
