@@ -64,7 +64,7 @@
                ScrollViewer.VerticalScrollBarVisibility="Auto" />
     </Border>
 
-    <TabControl x:Name="MainTabs">
+    <TabControl x:Name="MainTabs" SelectionChanged="MainTabs_SelectionChanged">
 
       <TabItem Header="账号与设置">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -182,13 +182,174 @@
             </ListBox.ItemTemplate>
           </ListBox>
 
-          <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="8">
+          <Grid Grid.Row="5" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
             <Button x:Name="ImportTaskButton" Content="导入并打开" Click="ImportTask_Click" />
-            <Button x:Name="StatementTaskButton" Content="只看题面" Click="StatementTask_Click" />
-            <TextBlock x:Name="TaskStatusText"
+            <Button Grid.Column="1" x:Name="StatementTaskButton" Content="只看题面" Click="StatementTask_Click" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
+              <TextBlock x:Name="TaskSummaryText"
+                         Classes="hint"
+                         VerticalAlignment="Center" />
+              <TextBlock x:Name="TaskStatusText"
+                         Classes="hint"
+                         VerticalAlignment="Center" />
+            </StackPanel>
+            <Button Grid.Column="3"
+                    x:Name="ExportTaskCsvButton"
+                    Content="导出 CSV"
+                    Click="ExportTaskCsv_Click"
+                    IsEnabled="False" />
+          </Grid>
+
+        </Grid>
+      </TabItem>
+
+      <TabItem Header="提交记录">
+        <Grid Margin="14" RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="8">
+
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock x:Name="HistorySummaryText"
+                       Classes="hint"
+                       VerticalAlignment="Center"
+                       Text="最近 50 次在线提交" />
+            <Button Grid.Column="1" Content="刷新" Click="RefreshHistory_Click" />
+          </Grid>
+
+          <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBox x:Name="HistoryFilterBox"
+                     PlaceholderText="按题号、标题、任务、判题或提交号筛选"
+                     TextChanged="HistoryFilter_Changed" />
+            <ComboBox x:Name="HistoryVerdictCombo"
+                      Grid.Column="1"
+                      Width="120"
+                      SelectionChanged="HistoryVerdict_SelectionChanged" />
+          </Grid>
+
+          <ListBox x:Name="HistoryList"
+                   Grid.Row="2"
+                   Background="{DynamicResource PanelAltBrush}"
+                   BorderBrush="{DynamicResource BorderBrush}"
+                   BorderThickness="1"
+                   SelectionChanged="HistoryList_SelectionChanged"
+                   DoubleTapped="HistoryList_DoubleTapped">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="models:AscSubmissionHistoryEntry">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                  <TextBlock Text="{Binding TimeText}"
+                             FontSize="11"
+                             Foreground="{DynamicResource MutedTextBrush}"
+                             VerticalAlignment="Center" />
+                  <StackPanel Grid.Column="1" Spacing="1">
+                    <TextBlock Text="{Binding DisplayText}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding DetailText}"
+                               FontSize="11"
+                               Foreground="{DynamicResource MutedTextBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                  <TextBlock Grid.Column="2"
+                             Text="{Binding VerdictText}"
+                             FontWeight="SemiBold"
+                             VerticalAlignment="Center" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8">
+            <Button x:Name="HistoryDetailButton"
+                    Content="查看选中记录"
+                    Click="HistoryDetail_Click"
+                    IsEnabled="False" />
+            <TextBox x:Name="HistoryIdBox"
+                     Width="170"
+                     PlaceholderText="提交号，如 2635935" />
+            <Button Content="按提交号查看"
+                    Click="HistoryById_Click" />
+            <TextBlock x:Name="HistoryStatusText"
                        Classes="hint"
                        VerticalAlignment="Center" />
           </StackPanel>
+
+          <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8">
+            <Button x:Name="HistoryCopyButton"
+                    Content="复制提交号"
+                    Click="HistoryCopy_Click"
+                    IsEnabled="False" />
+            <Button x:Name="HistoryOpenButton"
+                    Content="在网站打开"
+                    Click="HistoryOpen_Click"
+                    IsEnabled="False" />
+            <Button Content="导出筛选结果" Click="HistoryExport_Click" />
+            <Button Content="清空历史" Click="HistoryClear_Click" />
+          </StackPanel>
+
+        </Grid>
+      </TabItem>
+
+      <TabItem x:Name="RankingTab" Header="成绩">
+        <Grid Margin="14" RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="8">
+
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <TextBlock x:Name="RankingSummaryText"
+                       Classes="hint"
+                       VerticalAlignment="Center"
+                       Text="加载班测/作业后可查看成绩" />
+            <Button Grid.Column="1" Content="刷新成绩" Click="RankingRefresh_Click" />
+            <Button Grid.Column="2"
+                    x:Name="RankingExportButton"
+                    Content="导出 CSV"
+                    Click="RankingExport_Click"
+                    IsEnabled="False" />
+          </Grid>
+
+          <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <TextBlock Text="题目" VerticalAlignment="Center" />
+            <ComboBox x:Name="RankingProblemCombo"
+                      Grid.Column="1"
+                      HorizontalAlignment="Stretch"
+                      SelectionChanged="RankingProblemCombo_SelectionChanged" />
+            <Button Grid.Column="2"
+                    x:Name="RankingDetailButton"
+                    Content="查看最佳提交"
+                    Click="RankingDetail_Click"
+                    IsEnabled="False" />
+          </Grid>
+
+          <ListBox x:Name="RankingList"
+                   Grid.Row="2"
+                   Background="{DynamicResource PanelAltBrush}"
+                   BorderBrush="{DynamicResource BorderBrush}"
+                   BorderThickness="1"
+                   SelectionChanged="RankingList_SelectionChanged">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="models:AscRankingRow">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                  <TextBlock Text="{Binding DisplayText}"
+                             FontWeight="SemiBold"
+                             VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding ProblemSummary}"
+                             FontSize="11"
+                             Foreground="{DynamicResource MutedTextBrush}"
+                             TextTrimming="CharacterEllipsis"
+                             VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2"
+                             Text="{Binding ScoreText}"
+                             VerticalAlignment="Center" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <TextBlock x:Name="RankingStatusText"
+                     Grid.Row="3"
+                     Classes="hint"
+                     TextWrapping="Wrap" />
+
+          <TextBlock Grid.Row="4"
+                     Classes="hint"
+                     TextWrapping="Wrap"
+                     Text="选择一行和一道题，可查看该用户该题最佳提交的测试点、时间和内存。" />
 
         </Grid>
       </TabItem>
