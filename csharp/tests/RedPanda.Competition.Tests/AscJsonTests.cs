@@ -237,6 +237,28 @@ public sealed class AscJsonTests
         Assert.Empty(rows[1].Problems[1].BestSubmissionId);
     }
 
+    [Fact]
+    public void ParseSubmissionRecords_ReadsAllSubmissions()
+    {
+        using var doc = Parse("""
+            {
+              "records":[
+                {"id":2635935,"nickname":"张三","time":"2026-10-19 12:00","subStatic":"答案错误","subScore":50,"timeCost":12,"memoryCost":1048576,"codeLanguage":"C++"},
+                {"id":2636000,"nickname":"张三","time":"2026-10-19 12:05","subStatic":"答案正确","subScore":100,"timeCost":15,"memoryCost":2097152,"codeLanguage":"C++"}
+              ]
+            }
+            """);
+
+        var records = AscJson.ParseSubmissionRecords(doc.RootElement);
+
+        Assert.Equal(2, records.Count);
+        Assert.Equal("张三", records[0].Nickname);
+        Assert.Equal("WA", records[0].Verdict);
+        Assert.Equal(12, records[0].TimeMs);
+        Assert.Equal("AC", records[1].Verdict);
+        Assert.Equal(100, records[1].Score);
+    }
+
     [Theory]
     [InlineData("答案正确", "AC")]
     [InlineData("答案错误", "WA")]

@@ -48,10 +48,15 @@
         <TextBlock Text="结束后锁定在线交题" VerticalAlignment="Center" Classes="hint" />
       </StackPanel>
 
-      <CheckBox Grid.Row="2"
-                Grid.Column="1"
-                x:Name="LockCheckBox"
-                Content="时间到后禁止交题（仍可本地运行）" />
+      <TextBlock Grid.Row="2" Text="锁定选项" VerticalAlignment="Center" />
+      <StackPanel Grid.Row="2" Grid.Column="1" Spacing="6">
+        <CheckBox x:Name="LockCheckBox"
+                  Content="时间到后禁止交题（仍可本地运行）" />
+        <CheckBox x:Name="LockTaskCheckBox"
+                  Content="计时期间禁止打开其他任务" />
+        <CheckBox x:Name="FullscreenCheckBox"
+                  Content="计时开始后全屏" />
+      </StackPanel>
     </Grid>
 
     <StackPanel x:Name="RunningPanel"

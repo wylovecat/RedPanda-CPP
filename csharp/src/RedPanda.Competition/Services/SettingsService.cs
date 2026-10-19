@@ -72,6 +72,13 @@ public static class SettingsService
             settings.Optimization = "-O2";
         }
 
+        settings.RecentFiles = (settings.RecentFiles ?? new List<string>())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(10)
+            .ToList();
+
         return settings;
     }
 }

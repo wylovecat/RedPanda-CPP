@@ -210,6 +210,90 @@ public sealed class AscTaskProblem
     }
 }
 
+public sealed class AscSubmissionRecord
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string Title { get; set; } = string.Empty;
+
+    public string Nickname { get; set; } = string.Empty;
+
+    public string Time { get; set; } = string.Empty;
+
+    public string Verdict { get; set; } = string.Empty;
+
+    public double Score { get; set; }
+
+    public long TimeMs { get; set; }
+
+    public long MemoryBytes { get; set; }
+
+    public string Language { get; set; } = string.Empty;
+
+    [JsonIgnore]
+    public string VerdictText => string.IsNullOrWhiteSpace(Verdict) ? "?" : Verdict;
+
+    [JsonIgnore]
+    public string ScoreText => $"{Score:0.##} 分";
+
+    [JsonIgnore]
+    public string PerformanceText
+    {
+        get
+        {
+            if (TimeMs <= 0 && MemoryBytes <= 0)
+            {
+                return "时间/内存 ?";
+            }
+
+            var time = TimeMs > 0 ? $"{TimeMs} ms" : "? ms";
+            var memory = MemoryBytes > 0
+                ? $"{MemoryBytes / 1024.0 / 1024.0:F1} MB"
+                : "? MB";
+            return $"{time} · {memory}";
+        }
+    }
+
+    [JsonIgnore]
+    public string DisplayText =>
+        $"{Time}  {Nickname}  {VerdictText}  {ScoreText}  {PerformanceText}".Trim();
+}
+
+public sealed class MistakeEntry
+{
+    public string Key { get; set; } = string.Empty;
+
+    public string DisplayId { get; set; } = string.Empty;
+
+    public string Title { get; set; } = string.Empty;
+
+    public string TaskName { get; set; } = string.Empty;
+
+    public AscProblemSource Source { get; set; } = AscProblemSource.Bank;
+
+    public string Verdict { get; set; } = string.Empty;
+
+    public int FailCount { get; set; }
+
+    public DateTime LastSubmittedAtUtc { get; set; }
+
+    public string LastSubmissionId { get; set; } = string.Empty;
+
+    public string SourcePath { get; set; } = string.Empty;
+
+    [JsonIgnore]
+    public string DisplayText => $"{DisplayId}  {Title}".Trim();
+
+    [JsonIgnore]
+    public string StatusText =>
+        $"{Verdict} · 失败 {FailCount} 次 · {LastSubmittedAtUtc.ToLocalTime():MM-dd HH:mm}";
+
+    [JsonIgnore]
+    public string TaskText => Source == AscProblemSource.Bank
+        ? "题库"
+        : (Source == AscProblemSource.Work ? "作业 " : "班测 ") + TaskName;
+}
+
 public sealed class AscRankingProblem
 {
     public string Name { get; set; } = string.Empty;

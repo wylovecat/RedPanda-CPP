@@ -592,6 +592,49 @@ public static class AscJson
         return ranked;
     }
 
+    public static List<AscSubmissionRecord> ParseSubmissionRecords(JsonElement data)
+    {
+        var result = new List<AscSubmissionRecord>();
+
+        foreach (var row in Elements(data))
+        {
+            var record = new AscSubmissionRecord
+            {
+                Id = Str(row, "id", "tkSubId", "submissionId"),
+                Title = Str(row, "title", "titleName"),
+                Nickname = Str(row, "nickname", "userName", "studentName", "testChartsUser"),
+                Time = Str(row, "time", "createTime", "subTime"),
+                Verdict = VerdictOfRecord(row),
+                Score = Num(row, 0, "subScore", "score"),
+                TimeMs = Num(
+                    row,
+                    0,
+                    "timeCost", "time_cost", "timeUsed", "time_used",
+                    "real_time", "realTime"),
+                MemoryBytes = Num(
+                    row,
+                    0,
+                    "memoryCost", "memory_cost", "memoryUsed", "memory_used",
+                    "memory"),
+                Language = Str(row, "codeLanguage", "language")
+            };
+
+            if (record.Verdict == "?")
+            {
+                record.Verdict = string.Empty;
+            }
+
+            if (record.Id.Length == 0 && record.Time.Length == 0)
+            {
+                continue;
+            }
+
+            result.Add(record);
+        }
+
+        return result;
+    }
+
     public static AscSubmissionResult ParseSubmission(JsonElement data)
     {
         var result = new AscSubmissionResult();

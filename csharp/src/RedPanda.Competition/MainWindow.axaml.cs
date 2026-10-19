@@ -40,8 +40,13 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _draftTimer;
     private readonly DispatcherTimer _contestTimer;
     private readonly ObservableCollection<DiffLine> _diffLines = new();
+    private readonly List<DocumentTab> _tabs = new();
 
     private AppSettings _settings;
+    private int _activeTabIndex;
+    private int _nextUntitled = 1;
+    private bool _documentTabsUpdating;
+    private bool _tabSwitchInProgress;
     private string? _currentFilePath;
     private string? _lastExecutablePath;
     private string? _lastCompiledSourcePath;
@@ -119,11 +124,12 @@ public partial class MainWindow : Window
         AddHandler(KeyDownEvent, Window_KeyDown, RoutingStrategies.Tunnel);
 
         ApplyAppearance();
-        ResetDocument(null, TemplateService.CreateCppTemplate(), "UTF-8", loadTests: false);
+        InitializeInitialTab();
         UpdateCompilerStatus();
         UpdateSelectAllState();
         StatusText.Text = "就绪";
         RestoreContestState();
+        RebuildRecentFilesMenu();
 
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
         Opened += OnFirstOpened;
@@ -237,16 +243,13 @@ public partial class MainWindow : Window
 
     public void OpenInitialFile(string path)
     {
-        try
-        {
-            var (text, encodingName) = FileEncodingService.Read(path);
-            ResetDocument(path, text, encodingName, loadTests: true);
-            StatusText.Text = $"已打开 {Path.GetFileName(path)}";
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = "打开失败：" + ex.Message;
-        }
+        _ = OpenDocumentInNewTabAsync(path);
+    }
+
+    public async Task OpenPathAsync(string path)
+    {
+        await OpenDocumentInNewTabAsync(path);
+        Activate();
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -282,7 +285,7 @@ public partial class MainWindow : Window
             }
         }
 
-        var canClose = await ConfirmDiscardAsync();
+        var canClose = await ConfirmAllTabsBeforeCloseAsync();
         if (!canClose)
         {
             _closePromptOpen = false;
@@ -298,6 +301,26 @@ public partial class MainWindow : Window
         _forceClose = true;
         _closePromptOpen = false;
         Close();
+    }
+
+    private async Task<bool> ConfirmAllTabsBeforeCloseAsync()
+    {
+        var original = _activeTabIndex;
+        for (var i = 0; i < _tabs.Count; i++)
+        {
+            if (i != _activeTabIndex)
+            {
+                await SwitchToTabAsync(i);
+            }
+
+            if (!await ConfirmDiscardAsync())
+            {
+                await SwitchToTabAsync(original);
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private async Task<bool> ConfirmDiscardAsync()
@@ -338,16 +361,43 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!await ConfirmDiscardAsync())
-        {
-            return;
-        }
-
-        SaveTestsIfPossible();
+        CaptureActiveTab();
         _draftTimer.Stop();
         RecoveryService.Delete();
+
+        var reusable = _tabs.Count == 1 &&
+                       CurrentTab is { Path: null } current &&
+                       !current.IsDirty &&
+                       !_isDirty &&
+                       _viewModel.TestCases.All(testCase =>
+                           string.IsNullOrEmpty(testCase.Input) &&
+                           string.IsNullOrEmpty(testCase.ExpectedOutput));
+
+        if (!reusable)
+        {
+            _tabs.Add(new DocumentTab { UntitledName = NextUntitledName() });
+            _activeTabIndex = _tabs.Count - 1;
+        }
+        else if (CurrentTab is { } tab)
+        {
+            tab.UntitledName = NextUntitledName();
+            tab.PendingText = null;
+            tab.PendingTests = null;
+        }
+
         ResetDocument(null, TemplateService.CreateCppTemplate(), "UTF-8", loadTests: false);
+        if (CurrentTab is { } created)
+        {
+            created.Path = null;
+            created.IsDirty = false;
+            created.PendingText = null;
+            created.PendingTests = null;
+            created.CaretOffset = 0;
+        }
+
+        RefreshDocumentTabsCombo();
         StatusText.Text = "新建文件";
+        await Task.CompletedTask;
     }
 
     private async void OpenFile_Click(object? sender, RoutedEventArgs e)
@@ -362,13 +412,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!await ConfirmDiscardAsync())
-        {
-            return;
-        }
-
-        SaveTestsIfPossible();
-
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "打开 C++ 源文件",
@@ -381,18 +424,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        try
-        {
-            var (text, encodingName) = FileEncodingService.Read(path);
-            _draftTimer.Stop();
-            RecoveryService.Delete();
-            ResetDocument(path, text, encodingName, loadTests: true);
-            StatusText.Text = $"已打开 {Path.GetFileName(path)}";
-        }
-        catch (Exception ex)
-        {
-            await Dialogs.ShowMessageAsync(this, "打开失败", ex.Message);
-        }
+        _draftTimer.Stop();
+        RecoveryService.Delete();
+        await OpenDocumentInNewTabAsync(path);
     }
 
     private async void SaveFile_Click(object? sender, RoutedEventArgs e)
@@ -446,9 +480,19 @@ public partial class MainWindow : Window
             _currentFilePath = target;
             _settings.LastDirectory = Path.GetDirectoryName(target) ?? _settings.LastDirectory;
             _isDirty = false;
+            if (CurrentTab is { } tab)
+            {
+                tab.Path = target;
+                tab.IsDirty = false;
+                tab.PendingText = null;
+                tab.PendingTests = null;
+            }
+
             FileEncodingText.Text = "UTF-8";
             ApplyAscLimitsForPath(target);
             UpdateTitle();
+            AddRecentFile(target);
+            RefreshDocumentTabsCombo();
 
             try
             {
@@ -470,6 +514,437 @@ public partial class MainWindow : Window
             await Dialogs.ShowMessageAsync(this, "保存失败", ex.Message);
             return false;
         }
+    }
+
+    private DocumentTab? CurrentTab =>
+        _activeTabIndex >= 0 && _activeTabIndex < _tabs.Count
+            ? _tabs[_activeTabIndex]
+            : null;
+
+    private string NextUntitledName()
+    {
+        if (_nextUntitled <= 1)
+        {
+            _nextUntitled = 2;
+            return "未命名.cpp";
+        }
+
+        return $"未命名{_nextUntitled++}.cpp";
+    }
+
+    private void InitializeInitialTab()
+    {
+        _tabs.Clear();
+        _tabs.Add(new DocumentTab { UntitledName = NextUntitledName() });
+        _activeTabIndex = 0;
+        ResetDocument(null, TemplateService.CreateCppTemplate(), "UTF-8", loadTests: false);
+        RefreshDocumentTabsCombo();
+    }
+
+    private void RefreshDocumentTabsCombo()
+    {
+        if (DocumentTabsCombo is null)
+        {
+            return;
+        }
+
+        _documentTabsUpdating = true;
+        try
+        {
+            DocumentTabsCombo.ItemsSource = null;
+            DocumentTabsCombo.ItemsSource = _tabs;
+            DocumentTabsCombo.SelectedIndex = _activeTabIndex;
+        }
+        finally
+        {
+            _documentTabsUpdating = false;
+        }
+    }
+
+    private void SyncActiveTabState()
+    {
+        var tab = CurrentTab;
+        if (tab is null)
+        {
+            return;
+        }
+
+        tab.Path = _currentFilePath;
+        tab.IsDirty = _isDirty;
+        tab.PendingEncoding = FileEncodingText.Text ?? "UTF-8";
+        if (_isDirty)
+        {
+            tab.PendingText = CodeEditor.Text ?? string.Empty;
+        }
+        else
+        {
+            tab.PendingText = null;
+        }
+
+        RefreshDocumentTabsCombo();
+    }
+
+    private List<TestCase> CloneTests()
+    {
+        return _viewModel.TestCases
+            .Select(testCase => new TestCase
+            {
+                Name = testCase.Name,
+                Input = testCase.Input,
+                ExpectedOutput = testCase.ExpectedOutput,
+                IsChecked = testCase.IsChecked
+            })
+            .ToList();
+    }
+
+    private void CaptureActiveTab()
+    {
+        var tab = CurrentTab;
+        if (tab is null)
+        {
+            return;
+        }
+
+        tab.Path = _currentFilePath;
+        tab.IsDirty = _isDirty;
+        tab.PendingEncoding = FileEncodingText.Text ?? "UTF-8";
+        tab.CaretOffset = CodeEditor.CaretOffset;
+        tab.PendingText = _isDirty ? CodeEditor.Text ?? string.Empty : null;
+
+        if (_currentFilePath is not null)
+        {
+            try
+            {
+                TestCaseStore.Save(_currentFilePath, _viewModel.TestCases);
+                _testsDirty = false;
+                tab.PendingTests = null;
+            }
+            catch (Exception ex)
+            {
+                AppendRunLog("测试点保存失败：" + ex.Message);
+            }
+        }
+        else
+        {
+            tab.PendingTests = CloneTests();
+        }
+    }
+
+    private void RestoreTests(List<TestCase>? tests)
+    {
+        if (tests is null)
+        {
+            return;
+        }
+
+        _suppressTestChanges = true;
+        try
+        {
+            _viewModel.TestCases.Clear();
+            foreach (var testCase in tests)
+            {
+                _viewModel.TestCases.Add(testCase);
+            }
+
+            _viewModel.SelectedCase = _viewModel.TestCases.Count > 0
+                ? _viewModel.TestCases[0]
+                : null;
+        }
+        finally
+        {
+            _suppressTestChanges = false;
+        }
+
+        _testsDirty = false;
+        UpdateSelectAllState();
+        UpdateDiff(_viewModel.SelectedCase);
+    }
+
+    private async Task SwitchToTabAsync(int index)
+    {
+        if (_tabSwitchInProgress ||
+            _isBusy ||
+            index < 0 ||
+            index >= _tabs.Count ||
+            index == _activeTabIndex)
+        {
+            RefreshDocumentTabsCombo();
+            return;
+        }
+
+        _tabSwitchInProgress = true;
+        try
+        {
+            CaptureActiveTab();
+            _draftTimer.Stop();
+            RecoveryService.Delete();
+
+            var tab = _tabs[index];
+            if (tab.Path is not null)
+            {
+                var targetLink = AscLinkStore.LoadOrInfer(tab.Path);
+                if (ContestBlocksTask(targetLink?.TaskId))
+                {
+                    await Dialogs.ShowMessageAsync(
+                        this,
+                        "计时已锁定任务",
+                        $"本轮计时锁定在“{_settings.ContestTaskName}”，不能切换到其他任务。");
+                    RefreshDocumentTabsCombo();
+                    return;
+                }
+            }
+
+            if (tab.Path is not null && !File.Exists(tab.Path))            {
+                _tabs.RemoveAt(index);
+                if (_activeTabIndex >= _tabs.Count)
+                {
+                    _activeTabIndex = Math.Max(0, _tabs.Count - 1);
+                }
+
+                if (_tabs.Count == 0)
+                {
+                    _tabs.Add(new DocumentTab { UntitledName = NextUntitledName() });
+                    _activeTabIndex = 0;
+                }
+
+                RefreshDocumentTabsCombo();
+                StatusText.Text = "文件已不存在，标签已移除";
+                await SwitchToTabAsync(_activeTabIndex);
+                return;
+            }
+
+            _activeTabIndex = index;
+            if (tab.PendingText is not null)
+            {
+                ResetDocument(
+                    tab.Path,
+                    tab.PendingText,
+                    tab.PendingEncoding,
+                    loadTests: tab.Path is not null);
+                RestoreTests(tab.PendingTests);
+                _isDirty = tab.IsDirty;
+            }
+            else if (tab.Path is not null)
+            {
+                var (text, encodingName) = FileEncodingService.Read(tab.Path);
+                ResetDocument(tab.Path, text, encodingName, loadTests: true);
+                _isDirty = false;
+                tab.IsDirty = false;
+            }
+            else
+            {
+                ResetDocument(null, string.Empty, tab.PendingEncoding, loadTests: false);
+                RestoreTests(tab.PendingTests);
+                _isDirty = tab.IsDirty;
+            }
+
+            CodeEditor.CaretOffset = Math.Clamp(tab.CaretOffset, 0, CodeEditor.Text?.Length ?? 0);
+            UpdateTitle();
+            RefreshDocumentTabsCombo();
+            StatusText.Text = $"已切换到 {tab.DisplayName.TrimStart('*')}";
+        }
+        finally
+        {
+            _tabSwitchInProgress = false;
+        }
+    }
+
+    private async Task OpenDocumentInNewTabAsync(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        var fullPath = Path.GetFullPath(path);
+        var targetLink = AscLinkStore.LoadOrInfer(fullPath);
+        if (ContestBlocksTask(targetLink?.TaskId))
+        {
+            await Dialogs.ShowMessageAsync(
+                this,
+                "计时已锁定任务",
+                $"本轮计时锁定在“{_settings.ContestTaskName}”，不能打开其他任务。\n\n" +
+                "如需切换，请先暂停/交卷或清除计时。");
+            return;
+        }
+
+        var existingIndex = _tabs.FindIndex(tab =>
+            tab.Path is not null &&
+            string.Equals(Path.GetFullPath(tab.Path), fullPath, StringComparison.OrdinalIgnoreCase));
+        if (existingIndex >= 0)
+        {
+            await SwitchToTabAsync(existingIndex);
+            return;
+        }
+
+        string text;
+        string encodingName;
+        try
+        {
+            (text, encodingName) = FileEncodingService.Read(fullPath);
+        }
+        catch (Exception ex)
+        {
+            await Dialogs.ShowMessageAsync(this, "打开失败", ex.Message);
+            return;
+        }
+
+        var reusable = _tabs.Count == 1 &&
+                       CurrentTab is { Path: null } current &&
+                       !current.IsDirty &&
+                       !_isDirty &&
+                       _viewModel.TestCases.All(testCase =>
+                           string.IsNullOrEmpty(testCase.Input) &&
+                           string.IsNullOrEmpty(testCase.ExpectedOutput));
+
+        if (!reusable)
+        {
+            CaptureActiveTab();
+            _tabs.Add(new DocumentTab { UntitledName = NextUntitledName() });
+            _activeTabIndex = _tabs.Count - 1;
+        }
+
+        ResetDocument(fullPath, text, encodingName, loadTests: true);
+        _isDirty = false;
+        var tab = CurrentTab;
+        if (tab is not null)
+        {
+            tab.Path = fullPath;
+            tab.IsDirty = false;
+            tab.PendingText = null;
+            tab.PendingTests = null;
+            tab.CaretOffset = 0;
+        }
+
+        AddRecentFile(fullPath);
+        RefreshDocumentTabsCombo();
+        StatusText.Text = $"已打开 {Path.GetFileName(fullPath)}";
+    }
+
+    private void AddRecentFile(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        _settings.RecentFiles.RemoveAll(item =>
+            string.Equals(item, fullPath, StringComparison.OrdinalIgnoreCase));
+        _settings.RecentFiles.Insert(0, fullPath);
+        if (_settings.RecentFiles.Count > 10)
+        {
+            _settings.RecentFiles.RemoveRange(10, _settings.RecentFiles.Count - 10);
+        }
+
+        SettingsService.Save(_settings);
+        RebuildRecentFilesMenu();
+    }
+
+    private void RebuildRecentFilesMenu()
+    {
+        var items = new List<MenuItem>();
+        var existing = _settings.RecentFiles
+            .Where(File.Exists)
+            .Take(10)
+            .ToList();
+
+        _settings.RecentFiles = existing;
+        if (existing.Count == 0)
+        {
+            items.Add(new MenuItem { Header = "（暂无最近文件）", IsEnabled = false });
+        }
+        else
+        {
+            foreach (var path in existing)
+            {
+                var item = new MenuItem { Header = path };
+                item.Click += async (_, _) => await OpenDocumentInNewTabAsync(path);
+                items.Add(item);
+            }
+        }
+
+        if (RecentFilesButton.Flyout is MenuFlyout flyout)
+        {
+            flyout.ItemsSource = items;
+        }
+    }
+
+    private void DocumentTabsCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_documentTabsUpdating || DocumentTabsCombo.SelectedIndex < 0)
+        {
+            return;
+        }
+
+        _ = SwitchToTabAsync(DocumentTabsCombo.SelectedIndex);
+    }
+
+    private async void CloseTab_Click(object? sender, RoutedEventArgs e)
+    {
+        await CloseCurrentTabAsync();
+    }
+
+    private async Task CloseCurrentTabAsync()
+    {
+        if (_isBusy || _tabSwitchInProgress)
+        {
+            return;
+        }
+
+        if (!await ConfirmDiscardAsync())
+        {
+            return;
+        }
+
+        SaveTestsIfPossible();
+
+        if (_tabs.Count <= 1)
+        {
+            CaptureActiveTab();
+            var tab = CurrentTab;
+            if (tab is not null)
+            {
+                tab.IsDirty = false;
+                tab.PendingText = null;
+                tab.PendingTests = null;
+                tab.Path = null;
+                tab.UntitledName = NextUntitledName();
+            }
+
+            ResetDocument(null, TemplateService.CreateCppTemplate(), "UTF-8", loadTests: false);
+            RefreshDocumentTabsCombo();
+            StatusText.Text = "已清空当前标签";
+            return;
+        }
+
+        var index = _activeTabIndex;
+        _tabs.RemoveAt(index);
+        _activeTabIndex = Math.Clamp(index, 0, _tabs.Count - 1);
+        var next = _tabs[_activeTabIndex];
+
+        if (next.PendingText is not null)
+        {
+            ResetDocument(
+                next.Path,
+                next.PendingText,
+                next.PendingEncoding,
+                loadTests: next.Path is not null);
+            RestoreTests(next.PendingTests);
+            _isDirty = next.IsDirty;
+        }
+        else if (next.Path is not null)
+        {
+            var (text, encodingName) = FileEncodingService.Read(next.Path);
+            ResetDocument(next.Path, text, encodingName, loadTests: true);
+            _isDirty = false;
+            next.IsDirty = false;
+        }
+        else
+        {
+            ResetDocument(null, string.Empty, next.PendingEncoding, loadTests: false);
+            RestoreTests(next.PendingTests);
+            _isDirty = next.IsDirty;
+        }
+
+        CodeEditor.CaretOffset = Math.Clamp(next.CaretOffset, 0, CodeEditor.Text?.Length ?? 0);
+        RefreshDocumentTabsCombo();
+        StatusText.Text = $"已关闭标签，切换到 {next.DisplayName.TrimStart('*')}";
     }
 
     private void ResetDocument(string? path, string text, string encodingName, bool loadTests)
@@ -584,6 +1059,7 @@ public partial class MainWindow : Window
         if (markDirty && _currentFilePath is null)
         {
             _isDirty = true;
+            SyncActiveTabState();
             UpdateTitle();
         }
     }
@@ -598,6 +1074,7 @@ public partial class MainWindow : Window
         if (!_isDirty)
         {
             _isDirty = true;
+            SyncActiveTabState();
             UpdateTitle();
         }
 
@@ -617,7 +1094,7 @@ public partial class MainWindow : Window
     private void UpdateTitle()
     {
         var name = _currentFilePath is null
-            ? TemplateService.DefaultFileName
+            ? CurrentTab?.UntitledName ?? TemplateService.DefaultFileName
             : Path.GetFileName(_currentFilePath);
 
         Title = $"{(_isDirty ? "*" : string.Empty)}{name} - {AppInfo.ProductName} v{AppInfo.Version}";
@@ -861,6 +1338,15 @@ public partial class MainWindow : Window
                 owner,
                 "没有关联题目",
                 "当前文件没有爱思创题目链接。请先导入题目，或把文件命名为题号（如 A1131.cpp）。");
+            return false;
+        }
+
+        if (ContestBlocksTask(link.TaskId))
+        {
+            await Dialogs.ShowMessageAsync(
+                owner,
+                "计时已锁定任务",
+                $"本轮计时锁定在“{_settings.ContestTaskName}”，不能提交其他任务。");
             return false;
         }
 
@@ -1138,14 +1624,14 @@ public partial class MainWindow : Window
             return null;
         }
 
-        if (!await ConfirmDiscardAsync())
+        if (ContestBlocksTask(task?.TaskId))
         {
+            await Dialogs.ShowMessageAsync(
+                this,
+                "计时已锁定任务",
+                $"本轮计时锁定在“{_settings.ContestTaskName}”，不能导入其他任务。");
             return null;
         }
-
-        SaveTestsIfPossible();
-        _draftTimer.Stop();
-        RecoveryService.Delete();
 
         try
         {
@@ -1158,7 +1644,7 @@ public partial class MainWindow : Window
                 className,
                 ascSettings);
 
-            return ActivateAscImport(result);
+            return await ActivateAscImportAsync(result);
         }
         catch (Exception ex)
         {
@@ -1179,18 +1665,9 @@ public partial class MainWindow : Window
             return null;
         }
 
-        if (!await ConfirmDiscardAsync())
-        {
-            return null;
-        }
-
-        SaveTestsIfPossible();
-        _draftTimer.Stop();
-        RecoveryService.Delete();
-
         try
         {
-            return ActivateAscImport(local);
+            return await ActivateAscImportAsync(local);
         }
         catch (Exception ex)
         {
@@ -1199,10 +1676,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private AscImportResult ActivateAscImport(AscImportResult result)
+    private async Task<AscImportResult> ActivateAscImportAsync(AscImportResult result)
     {
-        var (text, encodingName) = FileEncodingService.Read(result.SourcePath);
-        ResetDocument(result.SourcePath, text, encodingName, loadTests: true);
+        await OpenDocumentInNewTabAsync(result.SourcePath);
         ApplyAscLimitsForPath(result.SourcePath);
 
         var limits = _activeTimeLimitMs is not null || _activeMemoryLimitMb is not null
@@ -1388,6 +1864,24 @@ public partial class MainWindow : Window
         (_settings.ContestFinished ||
          (_settings.ContestActive && _settings.ContestEndsAtUtc <= DateTime.UtcNow));
 
+    private bool ContestBlocksTask(string? taskId)
+    {
+        if (!_settings.ContestLockTask ||
+            _settings.ContestFinished ||
+            string.IsNullOrWhiteSpace(taskId) ||
+            string.IsNullOrWhiteSpace(_settings.ContestTaskId))
+        {
+            return false;
+        }
+
+        if (!_settings.ContestActive && !_settings.ContestPaused)
+        {
+            return false;
+        }
+
+        return !string.Equals(taskId, _settings.ContestTaskId, StringComparison.Ordinal);
+    }
+
     private void RefreshAscSubmitEnabled()
     {
         if (AscSubmitButton is null)
@@ -1416,6 +1910,12 @@ public partial class MainWindow : Window
         if (_settings.ContestActive)
         {
             _contestTimer.Start();
+        }
+
+        if (_settings.ContestFullscreen &&
+            (_settings.ContestActive || _settings.ContestPaused))
+        {
+            WindowState = WindowState.FullScreen;
         }
 
         ApplyContestUi();
@@ -1519,6 +2019,8 @@ public partial class MainWindow : Window
             _settings.ContestTitle,
             _settings.ContestDurationMinutes,
             _settings.ContestLockSubmission,
+            _settings.ContestLockTask,
+            _settings.ContestFullscreen,
             _settings.ContestEndsAtUtc,
             taskName));
 
@@ -1582,6 +2084,10 @@ public partial class MainWindow : Window
         _settings.ContestTitle = dialog.ContestTitle;
         _settings.ContestDurationMinutes = dialog.DurationMinutes;
         _settings.ContestLockSubmission = dialog.LockSubmission;
+        _settings.ContestLockTask = dialog.LockTask;
+        _settings.ContestFullscreen = dialog.Fullscreen;
+        _settings.ContestRemind5Shown = false;
+        _settings.ContestRemind1Shown = false;
         _settings.ContestActive = true;
         _settings.ContestFinished = false;
         _settings.ContestPaused = false;
@@ -1605,6 +2111,11 @@ public partial class MainWindow : Window
         SettingsService.Save(_settings);
         _contestTimer.Start();
         ApplyContestUi();
+        if (_settings.ContestFullscreen)
+        {
+            WindowState = WindowState.FullScreen;
+        }
+
         StatusText.Text = $"计时开始：{_settings.ContestTitle}，{dialog.DurationMinutes} 分钟";
         AppendRunLog(
             $"课堂计时：{_settings.ContestTitle}，{dialog.DurationMinutes} 分钟，" +
@@ -1633,6 +2144,8 @@ public partial class MainWindow : Window
             : DateTime.UtcNow;
         _settings.ContestEndsAtUtc = baseTime.AddMinutes(5);
         _settings.ContestFinished = false;
+        _settings.ContestRemind5Shown = false;
+        _settings.ContestRemind1Shown = false;
         SettingsService.Save(_settings);
         _contestTimer.Start();
         ApplyContestUi();
@@ -1678,6 +2191,8 @@ public partial class MainWindow : Window
         _settings.ContestFinished = false;
         _settings.ContestPausedRemainingMs = 0;
         _settings.ContestEndsAtUtc = now.Add(remaining);
+        _settings.ContestRemind5Shown = false;
+        _settings.ContestRemind1Shown = false;
         SettingsService.Save(_settings);
         _contestTimer.Start();
         ApplyContestUi();
@@ -1697,6 +2212,10 @@ public partial class MainWindow : Window
 
         _contestTimer.Stop();
         ApplyContestUi();
+        if (_settings.ContestFullscreen)
+        {
+            WindowState = WindowState.Normal;
+        }
 
         StatusText.Text = ContestSubmissionLocked ? "计时结束，交题已锁定" : "计时结束";
         AppendRunLog("课堂计时：已交卷。");
@@ -1713,6 +2232,22 @@ public partial class MainWindow : Window
         }
 
         var remaining = _settings.ContestEndsAtUtc - DateTime.UtcNow;
+        if (remaining <= TimeSpan.FromMinutes(5) && !_settings.ContestRemind5Shown)
+        {
+            _settings.ContestRemind5Shown = true;
+            SettingsService.Save(_settings);
+            StatusText.Text = "提醒：本轮计时还剩 5 分钟";
+            AppendRunLog("课堂计时：剩余 5 分钟。");
+        }
+
+        if (remaining <= TimeSpan.FromMinutes(1) && !_settings.ContestRemind1Shown)
+        {
+            _settings.ContestRemind1Shown = true;
+            SettingsService.Save(_settings);
+            StatusText.Text = "提醒：本轮计时还剩 1 分钟";
+            AppendRunLog("课堂计时：剩余 1 分钟。");
+        }
+
         if (remaining > TimeSpan.Zero)
         {
             UpdateContestStatus(remaining);
@@ -1725,6 +2260,10 @@ public partial class MainWindow : Window
         SettingsService.Save(_settings);
         _contestTimer.Stop();
         ApplyContestUi();
+        if (_settings.ContestFullscreen)
+        {
+            WindowState = WindowState.Normal;
+        }
 
         StatusText.Text = ContestSubmissionLocked ? "计时结束，交题已锁定" : "计时结束";
         AppendRunLog("课堂计时：时间到。");
@@ -1758,6 +2297,11 @@ public partial class MainWindow : Window
 
         _contestTimer.Stop();
         ApplyContestUi();
+        if (_settings.ContestFullscreen)
+        {
+            WindowState = WindowState.Normal;
+        }
+
         StatusText.Text = "计时已清除";
         AppendRunLog("课堂计时：已清除。");
     }
@@ -2025,6 +2569,30 @@ public partial class MainWindow : Window
         await RunAllAsync();
     }
 
+    private async void Stress_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        if (_currentFilePath is null || _isDirty)
+        {
+            if (!await SaveFileAsync())
+            {
+                return;
+            }
+        }
+
+        if (_currentFilePath is null)
+        {
+            return;
+        }
+
+        var window = new StressWindow(_currentFilePath, _settings);
+        await window.ShowDialog(this);
+    }
+
     private async Task RunAllAsync()
     {
         if (_isBusy)
@@ -2063,27 +2631,56 @@ public partial class MainWindow : Window
             var passed = 0;
             var withExpected = 0;
             var slowest = 0L;
+            var completed = 0;
+            var parallelism = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
+            using var gate = new SemaphoreSlim(parallelism);
 
-            foreach (var testCase in cases)
+            var tasks = cases.Select(async testCase =>
             {
-                if (cancellationToken.IsCancellationRequested)
+                try
                 {
-                    break;
+                    await gate.WaitAsync(cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
                 }
 
-                StatusText.Text = $"正在运行 {testCase.Name}…";
-                await RunCaseAsync(testCase, compile.ExecutablePath!, cancellationToken, refreshDiff: false);
-                slowest = Math.Max(slowest, testCase.ElapsedMs);
-
-                if (!string.IsNullOrWhiteSpace(testCase.ExpectedOutput))
+                try
                 {
-                    withExpected++;
-                    if (testCase.Status == "通过")
+                    if (cancellationToken.IsCancellationRequested)
                     {
-                        passed++;
+                        return;
                     }
+
+                    await RunCaseAsync(
+                        testCase,
+                        compile.ExecutablePath!,
+                        cancellationToken,
+                        refreshDiff: false);
+
+                    completed++;
+                    slowest = Math.Max(slowest, testCase.ElapsedMs);
+
+                    if (!string.IsNullOrWhiteSpace(testCase.ExpectedOutput))
+                    {
+                        withExpected++;
+                        if (testCase.Status == "通过")
+                        {
+                            passed++;
+                        }
+                    }
+
+                    StatusText.Text =
+                        $"进度 {completed}/{cases.Count} · {testCase.Name}：{testCase.Status}";
                 }
-            }
+                finally
+                {
+                    gate.Release();
+                }
+            });
+
+            await Task.WhenAll(tasks);
 
             if (cancellationToken.IsCancellationRequested)
             {
@@ -2270,10 +2867,11 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            result = new RunResult(RunOutcome.StartError, -1, string.Empty, string.Empty, 0, 0, ex.Message);
+            result = new RunResult(RunOutcome.StartError, -1, string.Empty, string.Empty, 0, 0, 0, ex.Message);
         }
 
         testCase.ElapsedMs = result.ElapsedMs;
+        testCase.StartupMs = result.StartupMs;
         testCase.PeakMemoryMb = result.PeakMemoryMb;
         testCase.ExitCode = result.ExitCode;
         testCase.HasRun = true;
@@ -2313,7 +2911,8 @@ public partial class MainWindow : Window
             _settings.OutputDisplayLimitKb * 1024);
 
         AppendRunLog(
-            $"{testCase.Name}：{testCase.Status}，用时 {result.ElapsedMs} ms，" +
+            $"{testCase.Name}：{testCase.Status}，用时 {result.ElapsedMs} ms" +
+            $"（启动 {result.StartupMs} ms），" +
             $"峰值内存 {result.PeakMemoryMb:F1} MB，退出码 {result.ExitCode}");
 
         if (result.Outcome == RunOutcome.Timeout)
@@ -2983,6 +3582,7 @@ public partial class MainWindow : Window
             : null;
         FileEncodingText.Text = draft.EncodingName;
         _isDirty = true;
+        SyncActiveTabState();
         InvalidateCompilation();
 
         var draftTests = draft.Tests ?? new List<TestCaseFile>();
@@ -3132,6 +3732,18 @@ public partial class MainWindow : Window
         {
             e.Handled = true;
             await OpenSnippetWindowAsync();
+        }
+        else if (control && !shift && e.Key == Key.W)
+        {
+            e.Handled = true;
+            await CloseCurrentTabAsync();
+        }
+        else if (control && e.Key == Key.Tab && _tabs.Count > 1)
+        {
+            e.Handled = true;
+            var delta = shift ? -1 : 1;
+            var next = (_activeTabIndex + delta + _tabs.Count) % _tabs.Count;
+            await SwitchToTabAsync(next);
         }
     }
 }

@@ -26,6 +26,8 @@ public sealed record ContestDialogState(
     string Title,
     int DurationMinutes,
     bool LockSubmission,
+    bool LockTask,
+    bool Fullscreen,
     DateTime EndsAtUtc,
     string TaskName);
 
@@ -40,7 +42,7 @@ public partial class ContestWindow : Window
     public ContestWindow()
         : this(new ContestDialogState(
             false, false, false, 0, "课堂测试", 90, true,
-            DateTime.MinValue, string.Empty))
+            false, false, DateTime.MinValue, string.Empty))
     {
     }
 
@@ -56,6 +58,8 @@ public partial class ContestWindow : Window
         TitleBox.Text = state.Title;
         MinutesBox.Value = Math.Clamp(state.DurationMinutes, 1, 600);
         LockCheckBox.IsChecked = state.LockSubmission;
+        LockTaskCheckBox.IsChecked = state.LockTask;
+        FullscreenCheckBox.IsChecked = state.Fullscreen;
 
         SetupPanel.IsVisible = !_running && !_paused && !_finished;
         RunningPanel.IsVisible = _running;
@@ -84,6 +88,10 @@ public partial class ContestWindow : Window
     public int DurationMinutes => (int)Math.Clamp(MinutesBox.Value ?? 90, 1, 600);
 
     public bool LockSubmission => LockCheckBox.IsChecked == true;
+
+    public bool LockTask => LockTaskCheckBox.IsChecked == true;
+
+    public bool Fullscreen => FullscreenCheckBox.IsChecked == true;
 
     private void UpdateHeader()
     {

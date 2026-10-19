@@ -43,6 +43,7 @@ public static class ProcessRunner
 
         using var process = new Process { StartInfo = startInfo };
         var stopwatch = Stopwatch.StartNew();
+        long startupMs;
 
         try
         {
@@ -50,6 +51,8 @@ public static class ProcessRunner
             {
                 return StartError("无法启动程序。");
             }
+
+            startupMs = stopwatch.ElapsedMilliseconds;
         }
         catch (Exception ex)
         {
@@ -185,6 +188,7 @@ public static class ProcessRunner
             stdout,
             stderr,
             stopwatch.ElapsedMilliseconds,
+            startupMs,
             Math.Round(peakBytes / 1024.0 / 1024.0, 1));
     }
 
@@ -269,6 +273,6 @@ public static class ProcessRunner
 
     private static RunResult StartError(string message)
     {
-        return new RunResult(RunOutcome.StartError, -1, string.Empty, string.Empty, 0, 0, message);
+        return new RunResult(RunOutcome.StartError, -1, string.Empty, string.Empty, 0, 0, 0, message);
     }
 }

@@ -29,6 +29,12 @@
         <StackPanel Orientation="Horizontal" Spacing="3">
           <Button Classes="toolbar" Click="NewFile_Click" ToolTip.Tip="新建 (Ctrl+N)">新建</Button>
           <Button Classes="toolbar" Click="OpenFile_Click" ToolTip.Tip="打开 (Ctrl+O)">打开</Button>
+          <Button x:Name="RecentFilesButton" Classes="toolbar" ToolTip.Tip="最近打开的文件">
+            最近
+            <Button.Flyout>
+              <MenuFlyout Placement="BottomEdgeAlignedLeft" />
+            </Button.Flyout>
+          </Button>
           <Button Classes="toolbar" Click="SaveFile_Click" ToolTip.Tip="保存 (Ctrl+S)">保存</Button>
           <Button Classes="toolbar" Click="SaveAs_Click" ToolTip.Tip="另存为 (Ctrl+Shift+S)">另存为</Button>
 
@@ -50,6 +56,10 @@
                   Classes="toolbar"
                   Click="RunAll_Click"
                   ToolTip.Tip="运行全部已勾选测试点 (F10)">测试全部</Button>
+          <Button x:Name="StressButton"
+                  Classes="toolbar"
+                  Click="Stress_Click"
+                  ToolTip.Tip="随机数据对拍（当前程序 vs 暴力程序）">对拍</Button>
           <Button x:Name="StopButton"
                   Classes="toolbar"
                   IsVisible="False"
@@ -104,6 +114,16 @@
                    TextTrimming="CharacterEllipsis"
                    Margin="0,0,12,0" />
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">
+          <ComboBox x:Name="DocumentTabsCombo"
+                    Width="190"
+                    VerticalAlignment="Center"
+                    SelectionChanged="DocumentTabsCombo_SelectionChanged"
+                    ToolTip.Tip="打开的标签；Ctrl+Tab 切换，Ctrl+W 关闭当前标签" />
+          <Button x:Name="CloseTabButton"
+                  Content="关闭标签"
+                  Click="CloseTab_Click"
+                  VerticalAlignment="Center"
+                  ToolTip.Tip="关闭当前标签 (Ctrl+W)" />
           <TextBlock x:Name="ContestStatusText"
                      Classes="hint"
                      IsVisible="False"

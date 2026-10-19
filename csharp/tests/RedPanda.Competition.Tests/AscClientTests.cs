@@ -229,6 +229,32 @@ public sealed class AscClientTests
     }
 
     [Fact]
+    public async Task FetchProblemSubmissions_UsesEveryoneEndpointAndFilters()
+    {
+        var handler = new FakeHttpMessageHandler(
+            Json("""{"code":200,"data":{"records":[{"id":7,"nickname":"张三","subStatic":"答案正确","subScore":100}]}}"""));
+
+        using var client = new AscClient(handler, "https://example.test/tiku");
+        client.SetSession(new AscSession
+        {
+            BaseUrl = "https://example.test/tiku",
+            Satoken = "tok",
+            UserId = "42",
+            Role = "teacher"
+        });
+
+        var records = await client.FetchProblemSubmissionsAsync("A1", "张三");
+
+        Assert.Single(records);
+        Assert.Equal("张三", records[0].Nickname);
+        var request = Assert.Single(handler.Requests);
+        Assert.EndsWith("/studentSubmitTkRecords/pagePlus", request.Uri.AbsolutePath);
+        Assert.Contains("name=A1", request.Uri.Query);
+        Assert.Contains("nickname=%E5%BC%A0%E4%B8%89", request.Uri.Query);
+        Assert.Contains("role=teacher", request.Uri.Query);
+    }
+
+    [Fact]
     public async Task RegisterWorkAnswer_SendsCodeAndIds()
     {
         var handler = new FakeHttpMessageHandler(

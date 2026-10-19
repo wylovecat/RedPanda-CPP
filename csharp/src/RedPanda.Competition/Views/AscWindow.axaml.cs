@@ -20,6 +20,7 @@ public partial class AscWindow : Window
     private readonly List<AscProblemRef> _bankProblems = new();
     private readonly List<AscSubmissionHistoryEntry> _history = new();
     private List<AscSubmissionHistoryEntry> _historyView = new();
+    private readonly List<MistakeEntry> _mistakes = new();
     private readonly List<AscRankingRow> _rankingRows = new();
 
     private AscTaskInfo? _currentTask;
@@ -60,6 +61,7 @@ public partial class AscWindow : Window
         HistoryVerdictCombo.ItemsSource = new[] { "全部", "AC", "非 AC", "未判题" };
         HistoryVerdictCombo.SelectedIndex = 0;
         RefreshHistory();
+        RefreshMistakes();
         OperationStatusText.Text = "就绪";
         UpdateUi();
 
@@ -905,6 +907,7 @@ public partial class AscWindow : Window
         }
 
         RefreshHistory();
+        RefreshMistakes();
         Log($"提交 {link.DisplayId}：{result.VerdictText}，{result.PerformanceText}");
         SetStatus($"提交完成：{result.VerdictText}");
         TaskStatusText.Text = $"{link.DisplayId}：{result.VerdictText}";
@@ -1313,9 +1316,55 @@ public partial class AscWindow : Window
 
     private void UpdateRankingDetailButton()
     {
-        var problem = GetSelectedRankingProblem(out _, out _);
+        var problem = GetSelectedRankingProblem(out var row, out _);
         RankingDetailButton.IsEnabled = problem is not null &&
                                         long.TryParse(problem.BestSubmissionId, out _);
+        RankingAllButton.IsEnabled = problem is not null &&
+                                     row is not null &&
+                                     !string.IsNullOrWhiteSpace(problem.Name);
+    }
+
+    private async void RankingAllSubmissions_Click(object? sender, RoutedEventArgs e)
+    {
+        var problem = GetSelectedRankingProblem(out var row, out _);
+        if (problem is null || row is null || _currentTask is null)
+        {
+            RankingStatusText.Text = "请选择一行和一道题。";
+            return;
+        }
+
+        var task = _currentTask;
+        await RunOperationAsync("正在读取全部提交…", async cancellationToken =>
+        {
+            var records = await _client.FetchProblemSubmissionsAsync(
+                problem.Name,
+                row.UserName,
+                cancellationToken);
+            var window = new SubmissionListWindow(records, problem.Name, row.UserName);
+            await window.ShowDialog(this);
+            RankingStatusText.Text = $"{row.UserName} · {problem.Name}：{records.Count} 条提交";
+
+            if (window.SelectedRecord is not { } record)
+            {
+                return;
+            }
+
+            var detail = await _client.FetchSubmissionDetailAsync(
+                record.Id,
+                cancellationToken);
+            var link = new AscProblemLink
+            {
+                DisplayId = problem.Name,
+                Title = $"{row.UserName} · {problem.Name}",
+                Source = task.Source,
+                TaskName = task.TaskName
+            };
+
+            await Dialogs.ShowDetailsAsync(
+                this,
+                $"提交详情 · {problem.Name}",
+                AscSubmissionFormatter.Format(link, detail, record.Id));
+        });
     }
 
     private AscRankingProblem? GetSelectedRankingProblem(
@@ -1425,6 +1474,82 @@ public partial class AscWindow : Window
         RankingExportButton.IsEnabled = false;
         RankingSummaryText.Text = "加载班测/作业后可查看成绩";
         RankingStatusText.Text = string.Empty;
+    }
+
+    private void RefreshMistakes()
+    {
+        if (MistakeList is null)
+        {
+            return;
+        }
+
+        _mistakes.Clear();
+        _mistakes.AddRange(AscMistakeBook.Build(AscHistoryStore.Load()));
+        MistakeList.ItemsSource = null;
+        MistakeList.ItemsSource = _mistakes;
+        MistakeOpenButton.IsEnabled = false;
+        MistakeDetailButton.IsEnabled = false;
+
+        var totalFailures = _mistakes.Sum(item => item.FailCount);
+        MistakeSummaryText.Text = _mistakes.Count == 0
+            ? "本机未通过的题目会汇总在这里"
+            : $"错题 {_mistakes.Count} 道 · 失败 {totalFailures} 次";
+        MistakeStatusText.Text = _mistakes.Count == 0
+            ? "交题后未 AC 的题目会自动出现在这里。"
+            : "已 AC 的题目会自动移出错题本。";
+    }
+
+    private void RefreshMistakes_Click(object? sender, RoutedEventArgs e)
+    {
+        RefreshMistakes();
+    }
+
+    private void MistakeList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        var hasSelection = MistakeList.SelectedItem is MistakeEntry;
+        MistakeOpenButton.IsEnabled = hasSelection;
+        MistakeDetailButton.IsEnabled = hasSelection;
+    }
+
+    private async void MistakeOpen_Click(object? sender, RoutedEventArgs e)
+    {
+        if (MistakeList.SelectedItem is not MistakeEntry entry || _owner is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(entry.SourcePath) || !File.Exists(entry.SourcePath))
+        {
+            MistakeStatusText.Text = "找不到这道题的源码文件。";
+            return;
+        }
+
+        await _owner.OpenPathAsync(entry.SourcePath);
+        MistakeStatusText.Text = $"已打开 {entry.DisplayId}";
+    }
+
+    private async void MistakeDetail_Click(object? sender, RoutedEventArgs e)
+    {
+        if (MistakeList.SelectedItem is not MistakeEntry entry)
+        {
+            return;
+        }
+
+        if (!_client.IsLoggedIn)
+        {
+            MistakeStatusText.Text = "查看提交详情需要先登录。";
+            return;
+        }
+
+        var link = new AscProblemLink
+        {
+            DisplayId = entry.DisplayId,
+            Title = entry.Title,
+            Source = entry.Source,
+            TaskName = entry.TaskName
+        };
+
+        await ShowSubmissionDetailAsync(entry.LastSubmissionId, link, null);
     }
 
     private void UpdateTaskSummary()

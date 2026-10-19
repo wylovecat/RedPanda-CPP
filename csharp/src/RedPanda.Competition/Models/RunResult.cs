@@ -16,6 +16,7 @@ public sealed record RunResult(
     string StandardOutput,
     string StandardError,
     long ElapsedMs,
+    long StartupMs,
     double PeakMemoryMb,
     string? ErrorMessage = null)
 {

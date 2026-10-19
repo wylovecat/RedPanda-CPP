@@ -23,6 +23,9 @@ public partial class TestCase : ObservableObject
     private long _elapsedMs;
 
     [ObservableProperty]
+    private long _startupMs;
+
+    [ObservableProperty]
     private double _peakMemoryMb;
 
     [ObservableProperty]

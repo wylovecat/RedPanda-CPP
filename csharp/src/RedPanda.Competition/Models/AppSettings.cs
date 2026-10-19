@@ -26,6 +26,8 @@ public sealed class AppSettings
 
     public string LastDirectory { get; set; } = string.Empty;
 
+    public List<string> RecentFiles { get; set; } = new();
+
     public bool WelcomeShown { get; set; }
 
     public string ContestTitle { get; set; } = "课堂测试";
@@ -33,6 +35,14 @@ public sealed class AppSettings
     public int ContestDurationMinutes { get; set; } = 90;
 
     public bool ContestLockSubmission { get; set; } = true;
+
+    public bool ContestLockTask { get; set; }
+
+    public bool ContestFullscreen { get; set; }
+
+    public bool ContestRemind5Shown { get; set; }
+
+    public bool ContestRemind1Shown { get; set; }
 
     public bool ContestActive { get; set; }
 

@@ -419,6 +419,29 @@ public sealed class AscClient : IDisposable
         return AscJson.ParseRanking(data);
     }
 
+    public async Task<List<AscSubmissionRecord>> FetchProblemSubmissionsAsync(
+        string displayId,
+        string? nickname,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new StringBuilder();
+        query.Append("?page=1&pageSize=50")
+            .Append("&name=").Append(Uri.EscapeDataString(displayId))
+            .Append("&status=&language=&sort=&tkId=")
+            .Append("&nickname=").Append(Uri.EscapeDataString(nickname ?? string.Empty))
+            .Append("&role=").Append(Uri.EscapeDataString(Session.Role))
+            .Append("&userId=0");
+
+        var (data, _) = await RequestAsync(
+            HttpMethod.Get,
+            "/studentSubmitTkRecords/pagePlus" + query,
+            null,
+            withCsrf: false,
+            cancellationToken);
+
+        return AscJson.ParseSubmissionRecords(data);
+    }
+
     public async Task<List<AscTaskProblem>> ListTaskProblemsAsync(
         AscProblemSource source,
         string taskId,

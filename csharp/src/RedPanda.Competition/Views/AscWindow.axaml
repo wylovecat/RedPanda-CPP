@@ -302,7 +302,7 @@
                     IsEnabled="False" />
           </Grid>
 
-          <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
             <TextBlock Text="题目" VerticalAlignment="Center" />
             <ComboBox x:Name="RankingProblemCombo"
                       Grid.Column="1"
@@ -312,6 +312,11 @@
                     x:Name="RankingDetailButton"
                     Content="查看最佳提交"
                     Click="RankingDetail_Click"
+                    IsEnabled="False" />
+            <Button Grid.Column="3"
+                    x:Name="RankingAllButton"
+                    Content="全部提交"
+                    Click="RankingAllSubmissions_Click"
                     IsEnabled="False" />
           </Grid>
 
@@ -350,6 +355,59 @@
                      Classes="hint"
                      TextWrapping="Wrap"
                      Text="选择一行和一道题，可查看该用户该题最佳提交的测试点、时间和内存。" />
+
+        </Grid>
+      </TabItem>
+
+      <TabItem x:Name="MistakeTab" Header="错题本">
+        <Grid Margin="14" RowDefinitions="Auto,*,Auto" RowSpacing="8">
+
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock x:Name="MistakeSummaryText"
+                       Classes="hint"
+                       VerticalAlignment="Center"
+                       Text="本机未通过的题目会汇总在这里" />
+            <Button Grid.Column="1" Content="刷新" Click="RefreshMistakes_Click" />
+          </Grid>
+
+          <ListBox x:Name="MistakeList"
+                   Grid.Row="1"
+                   Background="{DynamicResource PanelAltBrush}"
+                   BorderBrush="{DynamicResource BorderBrush}"
+                   BorderThickness="1"
+                   SelectionChanged="MistakeList_SelectionChanged">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="models:MistakeEntry">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                  <StackPanel Spacing="1">
+                    <TextBlock Text="{Binding DisplayText}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding TaskText}"
+                               FontSize="11"
+                               Foreground="{DynamicResource MutedTextBrush}" />
+                  </StackPanel>
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding StatusText}"
+                             FontSize="11"
+                             Foreground="{DynamicResource MutedTextBrush}"
+                             VerticalAlignment="Center" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+            <Button x:Name="MistakeOpenButton"
+                    Content="打开源码"
+                    Click="MistakeOpen_Click"
+                    IsEnabled="False" />
+            <Button x:Name="MistakeDetailButton"
+                    Content="查看最近提交"
+                    Click="MistakeDetail_Click"
+                    IsEnabled="False" />
+            <TextBlock x:Name="MistakeStatusText"
+                       Classes="hint"
+                       VerticalAlignment="Center" />
+          </StackPanel>
 
         </Grid>
       </TabItem>
