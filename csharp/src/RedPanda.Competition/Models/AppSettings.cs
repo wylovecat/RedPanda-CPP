@@ -26,6 +26,32 @@ public sealed class AppSettings
 
     public string LastDirectory { get; set; } = string.Empty;
 
+    public bool WelcomeShown { get; set; }
+
+    public string ContestTitle { get; set; } = "课堂测试";
+
+    public int ContestDurationMinutes { get; set; } = 90;
+
+    public bool ContestLockSubmission { get; set; } = true;
+
+    public bool ContestActive { get; set; }
+
+    public bool ContestFinished { get; set; }
+
+    public bool ContestPaused { get; set; }
+
+    public long ContestPausedRemainingMs { get; set; }
+
+    public DateTime ContestStartedAtUtc { get; set; }
+
+    public DateTime ContestEndsAtUtc { get; set; }
+
+    public string ContestTaskId { get; set; } = string.Empty;
+
+    public string ContestTaskName { get; set; } = string.Empty;
+
+    public AscProblemSource ContestTaskSource { get; set; } = AscProblemSource.Bank;
+
     public AppSettings Clone()
     {
         return (AppSettings)MemberwiseClone();

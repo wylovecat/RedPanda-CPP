@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private readonly CompilerService _compilerService = new();
     private readonly DispatcherTimer _testSaveTimer;
     private readonly DispatcherTimer _draftTimer;
+    private readonly DispatcherTimer _contestTimer;
     private readonly ObservableCollection<DiffLine> _diffLines = new();
 
     private AppSettings _settings;
@@ -62,6 +63,7 @@ public partial class MainWindow : Window
     private int? _activeTimeLimitMs;
     private int? _activeMemoryLimitMb;
     private CancellationTokenSource? _operationCts;
+    private bool _contestDialogOpen;
 
     public MainWindow()
         : this(new AppSettings())
@@ -72,6 +74,7 @@ public partial class MainWindow : Window
     {
         _settings = settings;
         InitializeComponent();
+        Title = $"{AppInfo.ProductName} v{AppInfo.Version}";
         DataContext = _viewModel;
 
         _testSaveTimer = new DispatcherTimer
@@ -89,6 +92,12 @@ public partial class MainWindow : Window
             Interval = TimeSpan.FromMilliseconds(3000)
         };
         _draftTimer.Tick += (_, _) => SaveDraft();
+
+        _contestTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _contestTimer.Tick += ContestTimer_Tick;
 
         DiffList.ItemsSource = _diffLines;
         _diffLines.Add(new DiffLine("i", "运行测试点后在这里查看差异", DiffLine.Note));
@@ -114,6 +123,7 @@ public partial class MainWindow : Window
         UpdateCompilerStatus();
         UpdateSelectAllState();
         StatusText.Text = "就绪";
+        RestoreContestState();
 
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
         Opened += OnFirstOpened;
@@ -122,6 +132,7 @@ public partial class MainWindow : Window
     private async void OnFirstOpened(object? sender, EventArgs e)
     {
         CodeEditor.Focus();
+        await ShowWelcomeIfNeededAsync();
 
         if (_restorePromptShown || !RecoveryService.Exists())
         {
@@ -169,6 +180,51 @@ public partial class MainWindow : Window
             RecoveryService.Delete();
             AppendRunLog("恢复草稿失败：" + ex.Message);
         }
+    }
+
+    private async Task ShowWelcomeIfNeededAsync()
+    {
+        if (_settings.WelcomeShown)
+        {
+            return;
+        }
+
+        _settings.WelcomeShown = true;
+        SettingsService.Save(_settings);
+
+        var gpp = ToolchainLocator.FindGpp(_settings.CompilerPath);
+        var message = new StringBuilder();
+        message.AppendLine($"欢迎使用 {AppInfo.ProductName} v{AppInfo.Version}。")
+            .AppendLine()
+            .AppendLine("常用入口：")
+            .AppendLine("· “爱思创”登录后拉取班测/作业，导入题目和样例")
+            .AppendLine("· F9 编译运行，Shift+F9 复用编译，F10 测试全部")
+            .AppendLine("· Ctrl+J 打开代码片段，插入常用模板")
+            .AppendLine("· “交题”直接提交当前文件，“提交详情”查看测试点")
+            .AppendLine("· “计时”设置课堂倒计时，结束后可锁定在线交题");
+
+        if (gpp is null)
+        {
+            message.AppendLine()
+                .AppendLine("当前没有检测到 g++。需要先指定编译器才能编译。");
+
+            var openSettings = await Dialogs.ConfirmAsync(
+                this,
+                "欢迎使用",
+                message.ToString().TrimEnd(),
+                "打开设置",
+                "稍后");
+            if (openSettings)
+            {
+                await OpenSettingsAsync();
+            }
+
+            return;
+        }
+
+        message.AppendLine()
+            .Append("编译器：").Append(gpp);
+        await Dialogs.ShowMessageAsync(this, "欢迎使用", message.ToString().TrimEnd());
     }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -564,7 +620,7 @@ public partial class MainWindow : Window
             ? TemplateService.DefaultFileName
             : Path.GetFileName(_currentFilePath);
 
-        Title = $"{(_isDirty ? "*" : string.Empty)}{name} - RedPanda CP · 算法竞赛版";
+        Title = $"{(_isDirty ? "*" : string.Empty)}{name} - {AppInfo.ProductName} v{AppInfo.Version}";
     }
 
     private void ApplyAppearance()
@@ -628,8 +684,98 @@ public partial class MainWindow : Window
         await SubmitCurrentFileToAscAsync();
     }
 
+    private async void AscDetail_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_isBusy || _ascSubmissionBusy)
+        {
+            StatusText.Text = "正在编译/运行或交题，稍后再看详情";
+            return;
+        }
+
+        var link = AscLinkStore.Load(_currentFilePath);
+        if (link is null || string.IsNullOrWhiteSpace(link.LastSubmissionId))
+        {
+            StatusText.Text = "当前文件还没有上次提交记录";
+            return;
+        }
+
+        var settings = AscSettingsStore.Load();
+        if (!settings.Session.IsValid)
+        {
+            await Dialogs.ShowMessageAsync(
+                this,
+                "需要登录",
+                "查看提交详情需要爱思创登录。请先打开“爱思创”登录。");
+            return;
+        }
+
+        try
+        {
+            using var client = new AscClient(baseUrl: settings.BaseUrl);
+            client.SetSession(settings.Session);
+
+            var detailId = link.LastSubmissionId;
+            if (!long.TryParse(detailId, out _))
+            {
+                if (string.IsNullOrWhiteSpace(link.ProblemId))
+                {
+                    throw new AscApiException(
+                        "这个旧记录只有提交请求号，缺少题号，无法自动转换。" +
+                        "请在“爱思创 → 提交记录”中输入网站上的数字提交号。");
+                }
+
+                StatusText.Text = "正在解析旧提交号…";
+                detailId = await client.ResolveSubmissionRecordIdAsync(
+                    detailId,
+                    link.ProblemId);
+                link.LastSubmissionId = detailId;
+                if (_currentFilePath is not null)
+                {
+                    AscLinkStore.Save(_currentFilePath, link);
+                }
+
+                UpdateAscStatusForCurrentFile(link);
+                AppendRunLog($"爱思创：旧提交号已转换为记录 {detailId}");
+            }
+
+            StatusText.Text = $"正在读取提交 {detailId} 的详情…";
+            var detail = await client.FetchSubmissionDetailAsync(detailId);
+            await Dialogs.ShowDetailsAsync(
+                this,
+                $"提交详情 · {link.DisplayId}",
+                AscSubmissionFormatter.Format(link, detail, detailId));
+            StatusText.Text = "提交详情已加载";
+        }
+        catch (AscAuthException ex)
+        {
+            var stale = AscSettingsStore.Load();
+            stale.Session = new AscSession { BaseUrl = stale.BaseUrl };
+            AscSettingsStore.Save(stale);
+            _ascWindow?.HandleSessionExpired();
+            await Dialogs.ShowMessageAsync(
+                this,
+                "登录已过期",
+                ex.Message + "\n\n请重新打开“爱思创”登录。");
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "读取提交详情失败";
+            await Dialogs.ShowMessageAsync(this, "读取提交详情失败", ex.Message);
+        }
+    }
+
     public async Task<bool> SubmitCurrentFileToAscAsync(Window? dialogOwner = null)
     {
+        if (ContestSubmissionLocked)
+        {
+            StatusText.Text = "计时已结束，交题已锁定";
+            await Dialogs.ShowMessageAsync(
+                dialogOwner ?? this,
+                "交题已锁定",
+                "本轮课堂计时已经结束，在线交题被锁定。\n\n本地编译和测试不受影响。");
+            return false;
+        }
+
         if (_ascSubmissionBusy)
         {
             return false;
@@ -660,7 +806,7 @@ public partial class MainWindow : Window
             _ascSubmissionBusy = false;
             _ascSubmissionCts?.Dispose();
             _ascSubmissionCts = null;
-            AscSubmitButton.IsEnabled = !_isBusy;
+            RefreshAscSubmitEnabled();
 
             if (!_isBusy)
             {
@@ -707,6 +853,7 @@ public partial class MainWindow : Window
         }
 
         var (code, sourcePath) = current.Value;
+        var codeHash = AscSubmissionGuard.HashCode(code);
         var link = AscLinkStore.LoadOrInfer(sourcePath);
         if (link is null || string.IsNullOrWhiteSpace(link.DisplayId))
         {
@@ -740,9 +887,34 @@ public partial class MainWindow : Window
                 ? (link.Source == AscProblemSource.Work ? "作业" : "班测") + " " + link.TaskName
                 : "题库";
 
+            var contestMismatchMessage = string.Empty;
+            if ((_settings.ContestActive || _settings.ContestPaused) &&
+                !_settings.ContestFinished &&
+                !string.IsNullOrWhiteSpace(_settings.ContestTaskId) &&
+                link.IsTask &&
+                !string.Equals(link.TaskId, _settings.ContestTaskId, StringComparison.Ordinal))
+            {
+                contestMismatchMessage =
+                    $"注意：本轮计时绑定任务“{_settings.ContestTaskName}”，" +
+                    $"当前文件属于“{link.TaskName}”。\n\n";
+                AppendRunLog(
+                    $"课堂计时提醒：当前文件属于 {link.TaskName}，本轮任务是 {_settings.ContestTaskName}。");
+            }
+
+            var duplicateMessage = string.Empty;
+            if (AscSubmissionGuard.IsRecentDuplicate(link, codeHash, DateTime.UtcNow))
+            {
+                var previousTime = link.LastSubmittedAtUtc.ToLocalTime().ToString("HH:mm:ss");
+                var previousVerdict = string.IsNullOrWhiteSpace(link.LastVerdict) ? "?" : link.LastVerdict;
+                duplicateMessage =
+                    $"这段代码在 {previousTime} 刚刚提交过（{previousVerdict}）。\n\n";
+            }
+
             var confirmed = await Dialogs.ConfirmAsync(
                 owner,
                 "在线提交",
+                contestMismatchMessage +
+                duplicateMessage +
                 $"将 {link.DisplayId}（{where}）提交到爱思创生产站点。\n\n这会写入线上记录，是否继续？",
                 "提交",
                 "取消");
@@ -787,6 +959,15 @@ public partial class MainWindow : Window
                 }
             }
 
+            // The POST response id is only the polling handle (often a GUID).
+            // The result page and history are keyed by the numeric row id from
+            // the polling response.
+            var detailSubmissionId = AscSubmissionGuard.ResolveDetailId(result, submissionId);
+            if (!string.Equals(detailSubmissionId, submissionId, StringComparison.Ordinal))
+            {
+                AppendRunLog($"爱思创：判题记录 {detailSubmissionId}");
+            }
+
             // /api/submission may stop at the verdict without runtime or memory.
             // The site's own result page uses this detail endpoint, so enrich
             // the result there before writing it back to the class task.
@@ -795,7 +976,7 @@ public partial class MainWindow : Window
                 try
                 {
                     var detail = await client.FetchSubmissionDetailAsync(
-                        submissionId,
+                        detailSubmissionId,
                         cancellationToken);
 
                     if (result.TimeMs <= 0 && detail.TimeMs > 0)
@@ -812,6 +993,16 @@ public partial class MainWindow : Window
                         !string.IsNullOrWhiteSpace(detail.Feedback))
                     {
                         result.Feedback = detail.Feedback;
+                    }
+
+                    if (result.Cases.Count == 0 && detail.Cases.Count > 0)
+                    {
+                        result.Cases = detail.Cases;
+                    }
+
+                    if (result.Score <= 0 && detail.Score > 0)
+                    {
+                        result.Score = detail.Score;
                     }
                 }
                 catch (OperationCanceledException)
@@ -860,9 +1051,27 @@ public partial class MainWindow : Window
             }
 
             link.LastVerdict = result.Verdict;
-            link.LastSubmissionId = submissionId;
+            link.LastSubmissionId = detailSubmissionId;
+            link.LastSubmittedCodeHash = codeHash;
             link.LastSubmittedAtUtc = DateTime.UtcNow;
             AscLinkStore.Save(sourcePath, link);
+
+            AscHistoryStore.Add(new AscSubmissionHistoryEntry
+            {
+                SubmissionId = detailSubmissionId,
+                DisplayId = link.DisplayId,
+                Title = link.Title,
+                TaskId = link.TaskId,
+                TaskName = link.TaskName,
+                Source = link.Source,
+                Verdict = result.Verdict,
+                TimeMs = result.TimeMs,
+                MemoryBytes = result.MemoryBytes,
+                Score = result.Score,
+                SubmittedAtUtc = link.LastSubmittedAtUtc,
+                SourcePath = sourcePath
+            });
+
             UpdateAscStatusForCurrentFile(link);
             _ascWindow?.NotifySubmissionResult(link, result);
 
@@ -880,7 +1089,7 @@ public partial class MainWindow : Window
                 await Dialogs.ShowMessageAsync(
                     owner,
                     result.Passed ? "提交完成" : "提交结果",
-                    FormatAscSubmissionResult(link, result, submissionId));
+                    AscSubmissionFormatter.Format(link, result, detailSubmissionId));
             }
 
             return true;
@@ -912,31 +1121,6 @@ public partial class MainWindow : Window
             await Dialogs.ShowMessageAsync(owner, "交题失败", ex.Message);
             return false;
         }
-    }
-
-    private static string FormatAscSubmissionResult(
-        AscProblemLink link,
-        AscSubmissionResult result,
-        string submissionId)
-    {
-        var builder = new StringBuilder();
-        builder.AppendLine($"{link.DisplayId} {link.Title}".Trim());
-        builder.AppendLine($"提交号：{submissionId}");
-        builder.AppendLine($"结果：{result.VerdictText}");
-        builder.AppendLine($"时间/内存：{result.PerformanceText}");
-        builder.AppendLine($"得分：{result.Score}");
-
-        if (link.IsTask)
-        {
-            builder.AppendLine($"任务：{link.TaskName}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(result.Feedback))
-        {
-            builder.AppendLine().AppendLine("反馈：").AppendLine(result.Feedback.Trim());
-        }
-
-        return builder.ToString().TrimEnd();
     }
 
     public async Task<AscImportResult?> ImportAscProblemAsync(
@@ -974,27 +1158,67 @@ public partial class MainWindow : Window
                 className,
                 ascSettings);
 
-            var (text, encodingName) = FileEncodingService.Read(result.SourcePath);
-            ResetDocument(result.SourcePath, text, encodingName, loadTests: true);
-            ApplyAscLimitsForPath(result.SourcePath);
-
-            var limits = _activeTimeLimitMs is not null || _activeMemoryLimitMb is not null
-                ? $"（{_activeTimeLimitMs ?? _settings.TimeLimitMs} ms / {_activeMemoryLimitMb ?? _settings.MemoryLimitMb} MB）"
-                : string.Empty;
-
-            StatusText.Text = $"已导入 {result.Link.DisplayId}{limits}";
-            AppendRunLog(
-                $"爱思创：已导入 {result.Link.DisplayId} {result.Link.Title}；" +
-                $"源码 {(result.CreatedSource ? "新建" : "已存在")}，测试点 {(result.CreatedTests ? "新建" : "保留本地")}。");
-            AppendRunLog("题面文件：" + result.StatementPath);
-
-            return result;
+            return ActivateAscImport(result);
         }
         catch (Exception ex)
         {
             await Dialogs.ShowMessageAsync(this, "导入爱思创题目失败", ex.Message);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Opens a problem that already exists on disk without touching the network
+    /// or rewriting its statement/tests.
+    /// </summary>
+    public async Task<AscImportResult?> OpenLocalAscProblemAsync(AscImportResult local)
+    {
+        if (_isBusy)
+        {
+            StatusText.Text = "正在运行，稍后再打开题目";
+            return null;
+        }
+
+        if (!await ConfirmDiscardAsync())
+        {
+            return null;
+        }
+
+        SaveTestsIfPossible();
+        _draftTimer.Stop();
+        RecoveryService.Delete();
+
+        try
+        {
+            return ActivateAscImport(local);
+        }
+        catch (Exception ex)
+        {
+            await Dialogs.ShowMessageAsync(this, "打开本地题目失败", ex.Message);
+            return null;
+        }
+    }
+
+    private AscImportResult ActivateAscImport(AscImportResult result)
+    {
+        var (text, encodingName) = FileEncodingService.Read(result.SourcePath);
+        ResetDocument(result.SourcePath, text, encodingName, loadTests: true);
+        ApplyAscLimitsForPath(result.SourcePath);
+
+        var limits = _activeTimeLimitMs is not null || _activeMemoryLimitMb is not null
+            ? $"（{_activeTimeLimitMs ?? _settings.TimeLimitMs} ms / {_activeMemoryLimitMb ?? _settings.MemoryLimitMb} MB）"
+            : string.Empty;
+
+        StatusText.Text = $"已打开 {result.Link.DisplayId}{limits}";
+        var testState = result.SamplesFilled
+            ? "已补样例"
+            : result.CreatedTests ? "新建" : "保留本地";
+        AppendRunLog(
+            $"爱思创：已打开 {result.Link.DisplayId} {result.Link.Title}；" +
+            $"源码 {(result.CreatedSource ? "新建" : "已存在")}，测试点 {testState}。");
+        AppendRunLog("题面文件：" + result.StatementPath);
+
+        return result;
     }
 
     public async Task<(string Code, string SourcePath)?> GetCurrentCodeForAscSubmissionAsync()
@@ -1021,6 +1245,9 @@ public partial class MainWindow : Window
         {
             return;
         }
+
+        AscDetailButton.IsEnabled =
+            link is not null && !string.IsNullOrWhiteSpace(link.LastSubmissionId);
 
         if (link is null || !link.IsValid)
         {
@@ -1081,6 +1308,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        if ((_settings.ContestActive || _settings.ContestPaused) &&
+            !_settings.ContestFinished &&
+            !string.IsNullOrWhiteSpace(_settings.ContestTaskId) &&
+            link.IsTask &&
+            !string.Equals(link.TaskId, _settings.ContestTaskId, StringComparison.Ordinal))
+        {
+            var reminder =
+                $"计时提醒：当前文件属于“{link.TaskName}”，本轮计时绑定“{_settings.ContestTaskName}”。";
+            StatusText.Text = reminder;
+            AppendRunLog(reminder);
+        }
+
         if (link.TimeLimitMs > 0)
         {
             _activeTimeLimitMs = (int)Math.Clamp(link.TimeLimitMs, 100, 60_000);
@@ -1090,6 +1329,549 @@ public partial class MainWindow : Window
         {
             _activeMemoryLimitMb = (int)Math.Clamp(link.MemoryLimitMb, 16, 8192);
         }
+    }
+
+    private async void Snippets_Click(object? sender, RoutedEventArgs e)
+    {
+        await OpenSnippetWindowAsync();
+    }
+
+    private async void SaveSelectionAsSnippet_Click(object? sender, RoutedEventArgs e)
+    {
+        var selected = CodeEditor.SelectedText;
+        if (string.IsNullOrWhiteSpace(selected))
+        {
+            await Dialogs.ShowMessageAsync(
+                this,
+                "保存代码片段",
+                "请先在编辑器里选中要保存的代码。");
+            return;
+        }
+
+        var window = new SnippetWindow(selected, createNew: true);
+        await window.ShowDialog(this);
+        if (window.SavedSomething)
+        {
+            StatusText.Text = "选中代码已保存为片段";
+        }
+    }
+
+    private async Task OpenSnippetWindowAsync()
+    {
+        var window = new SnippetWindow();
+        await window.ShowDialog(this);
+        if (window.InsertRequested is { } snippet)
+        {
+            InsertSnippet(snippet);
+        }
+    }
+
+    private void InsertSnippet(CodeSnippet snippet)
+    {
+        var start = CodeEditor.SelectionLength > 0
+            ? CodeEditor.SelectionStart
+            : CodeEditor.CaretOffset;
+        if (CodeEditor.SelectionLength > 0)
+        {
+            CodeEditor.Document.Remove(start, CodeEditor.SelectionLength);
+        }
+
+        CodeEditor.Document.Insert(start, snippet.Body);
+        CodeEditor.CaretOffset = start + snippet.Body.Length;
+        CodeEditor.Focus();
+        StatusText.Text = $"已插入片段：{snippet.Name}";
+        AppendRunLog($"代码片段：已插入 {snippet.Name}（{snippet.Body.Length} 字符）。");
+    }
+
+    private bool ContestSubmissionLocked =>
+        _settings.ContestLockSubmission &&
+        (_settings.ContestFinished ||
+         (_settings.ContestActive && _settings.ContestEndsAtUtc <= DateTime.UtcNow));
+
+    private void RefreshAscSubmitEnabled()
+    {
+        if (AscSubmitButton is null)
+        {
+            return;
+        }
+
+        AscSubmitButton.IsEnabled = !_isBusy && !_ascSubmissionBusy && !ContestSubmissionLocked;
+        ToolTip.SetTip(
+            AscSubmitButton,
+            ContestSubmissionLocked
+                ? "本轮计时已结束，在线交题被锁定；本地编译和测试不受影响"
+                : "提交当前文件到爱思创（使用本地题目链接，不需要重开爱思创窗口）");
+    }
+
+    private void RestoreContestState()
+    {
+        if (_settings.ContestActive && _settings.ContestEndsAtUtc <= DateTime.UtcNow)
+        {
+            _settings.ContestActive = false;
+            _settings.ContestFinished = true;
+            _settings.ContestPaused = false;
+            SettingsService.Save(_settings);
+        }
+
+        if (_settings.ContestActive)
+        {
+            _contestTimer.Start();
+        }
+
+        ApplyContestUi();
+    }
+
+    private void ApplyContestUi()
+    {
+        if (ContestStatusText is null || ContestButton is null)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        var active = _settings.ContestActive && _settings.ContestEndsAtUtc > now;
+        var paused = _settings.ContestPaused && !_settings.ContestFinished;
+        var finished = _settings.ContestFinished || (_settings.ContestActive && !active);
+
+        ContestStatusText.IsVisible = active || paused || finished;
+        if (active)
+        {
+            ContestButton.Content = "计时中";
+            UpdateContestStatus(_settings.ContestEndsAtUtc - now);
+        }
+        else if (paused)
+        {
+            ContestButton.Content = "已暂停";
+            var remaining = TimeSpan.FromMilliseconds(
+                Math.Max(0, _settings.ContestPausedRemainingMs));
+            ContestStatusText.Text =
+                $"{_settings.ContestTitle} · 已暂停 {FormatRemainingText(remaining)}";
+            ToolTip.SetTip(ContestStatusText, "本轮计时已暂停，打开“计时”可继续。");
+        }
+        else if (finished)
+        {
+            ContestButton.Content = "已结束";
+            ContestStatusText.Text = $"{_settings.ContestTitle} · 已结束";
+            ToolTip.SetTip(
+                ContestStatusText,
+                _settings.ContestLockSubmission
+                    ? "在线交题已锁定；清除计时后可重新开始。"
+                    : "在线交题未锁定。");
+        }
+        else
+        {
+            ContestButton.Content = "计时";
+            ContestStatusText.Text = string.Empty;
+        }
+
+        RefreshAscSubmitEnabled();
+    }
+
+    private static string FormatRemainingText(TimeSpan remaining)
+    {
+        var total = Math.Max(0, (int)Math.Ceiling(remaining.TotalSeconds));
+        var hours = total / 3600;
+        var minutes = total % 3600 / 60;
+        var seconds = total % 60;
+        return hours > 0
+            ? $"{hours}:{minutes:00}:{seconds:00}"
+            : $"{minutes:00}:{seconds:00}";
+    }
+
+    private void UpdateContestStatus(TimeSpan remaining)
+    {
+        ContestStatusText.Text =
+            $"{_settings.ContestTitle} · 剩余 {FormatRemainingText(remaining)}";
+        var tip = new StringBuilder();
+        tip.Append("结束时间：")
+            .AppendLine(_settings.ContestEndsAtUtc.ToLocalTime().ToString("HH:mm"));
+        if (!string.IsNullOrWhiteSpace(_settings.ContestTaskName))
+        {
+            tip.Append("任务：").AppendLine(_settings.ContestTaskName);
+        }
+
+        tip.Append(_settings.ContestLockSubmission ? "结束后锁定在线交题" : "结束后不锁定交题");
+        ToolTip.SetTip(ContestStatusText, tip.ToString());
+    }
+
+    private async void Contest_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_contestDialogOpen)
+        {
+            return;
+        }
+
+        if (_settings.ContestActive && _settings.ContestEndsAtUtc <= DateTime.UtcNow)
+        {
+            _settings.ContestActive = false;
+            _settings.ContestFinished = true;
+            SettingsService.Save(_settings);
+            ApplyContestUi();
+        }
+
+        var currentLink = AscLinkStore.LoadOrInfer(_currentFilePath);
+        var taskName = currentLink is { IsTask: true } ? currentLink.TaskName : string.Empty;
+        var dialog = new ContestWindow(new ContestDialogState(
+            _settings.ContestActive,
+            _settings.ContestFinished,
+            _settings.ContestPaused,
+            _settings.ContestPausedRemainingMs,
+            _settings.ContestTitle,
+            _settings.ContestDurationMinutes,
+            _settings.ContestLockSubmission,
+            _settings.ContestEndsAtUtc,
+            taskName));
+
+        _contestDialogOpen = true;
+        try
+        {
+            await dialog.ShowDialog(this);
+        }
+        finally
+        {
+            _contestDialogOpen = false;
+        }
+
+        switch (dialog.Action)
+        {
+            case ContestDialogAction.Start:
+                StartContest(dialog, currentLink);
+                break;
+            case ContestDialogAction.Extend:
+                ExtendContest();
+                break;
+            case ContestDialogAction.Pause:
+                PauseContest();
+                break;
+            case ContestDialogAction.Resume:
+                ResumeContest();
+                break;
+            case ContestDialogAction.Finish:
+                if (await Dialogs.ConfirmAsync(
+                        this,
+                        "交卷",
+                        "确定交卷并结束本轮计时吗？\n\n" +
+                        (_settings.ContestLockSubmission
+                            ? "结束后将锁定在线交题。"
+                            : "结束后不会锁定在线交题。"),
+                        "交卷",
+                        "取消"))
+                {
+                    await EndContestAsync();
+                }
+                break;
+            case ContestDialogAction.Summary:
+                await ShowContestSummaryAsync();
+                break;
+            case ContestDialogAction.Export:
+                await ExportContestSummaryAsync();
+                break;
+            case ContestDialogAction.Clear:
+                ResetContest();
+                break;
+            case ContestDialogAction.Restart:
+                ResetContest();
+                Contest_Click(null, e);
+                break;
+        }
+    }
+
+    private void StartContest(ContestWindow dialog, AscProblemLink? link)
+    {
+        var now = DateTime.UtcNow;
+        _settings.ContestTitle = dialog.ContestTitle;
+        _settings.ContestDurationMinutes = dialog.DurationMinutes;
+        _settings.ContestLockSubmission = dialog.LockSubmission;
+        _settings.ContestActive = true;
+        _settings.ContestFinished = false;
+        _settings.ContestPaused = false;
+        _settings.ContestPausedRemainingMs = 0;
+        _settings.ContestStartedAtUtc = now;
+        _settings.ContestEndsAtUtc = now.AddMinutes(dialog.DurationMinutes);
+
+        if (link is { IsTask: true })
+        {
+            _settings.ContestTaskId = link.TaskId;
+            _settings.ContestTaskName = link.TaskName;
+            _settings.ContestTaskSource = link.Source;
+        }
+        else
+        {
+            _settings.ContestTaskId = string.Empty;
+            _settings.ContestTaskName = string.Empty;
+            _settings.ContestTaskSource = AscProblemSource.Bank;
+        }
+
+        SettingsService.Save(_settings);
+        _contestTimer.Start();
+        ApplyContestUi();
+        StatusText.Text = $"计时开始：{_settings.ContestTitle}，{dialog.DurationMinutes} 分钟";
+        AppendRunLog(
+            $"课堂计时：{_settings.ContestTitle}，{dialog.DurationMinutes} 分钟，" +
+            (_settings.ContestLockSubmission ? "结束后锁定交题。" : "结束后不锁定交题。"));
+    }
+
+    private void ExtendContest()
+    {
+        if (_settings.ContestPaused)
+        {
+            _settings.ContestPausedRemainingMs += (long)TimeSpan.FromMinutes(5).TotalMilliseconds;
+            SettingsService.Save(_settings);
+            ApplyContestUi();
+            StatusText.Text = "暂停中的计时已延长 5 分钟";
+            AppendRunLog("课堂计时：暂停中延长 5 分钟。");
+            return;
+        }
+
+        if (!_settings.ContestActive)
+        {
+            return;
+        }
+
+        var baseTime = _settings.ContestEndsAtUtc > DateTime.UtcNow
+            ? _settings.ContestEndsAtUtc
+            : DateTime.UtcNow;
+        _settings.ContestEndsAtUtc = baseTime.AddMinutes(5);
+        _settings.ContestFinished = false;
+        SettingsService.Save(_settings);
+        _contestTimer.Start();
+        ApplyContestUi();
+        StatusText.Text = "计时已延长 5 分钟";
+        AppendRunLog("课堂计时：延长 5 分钟。");
+    }
+
+    private void PauseContest()
+    {
+        if (!_settings.ContestActive)
+        {
+            return;
+        }
+
+        var remaining = _settings.ContestEndsAtUtc - DateTime.UtcNow;
+        if (remaining < TimeSpan.Zero)
+        {
+            remaining = TimeSpan.Zero;
+        }
+
+        _settings.ContestActive = false;
+        _settings.ContestPaused = true;
+        _settings.ContestPausedRemainingMs = (long)remaining.TotalMilliseconds;
+        SettingsService.Save(_settings);
+        _contestTimer.Stop();
+        ApplyContestUi();
+        StatusText.Text = "计时已暂停";
+        AppendRunLog("课堂计时：已暂停。");
+    }
+
+    private void ResumeContest()
+    {
+        if (!_settings.ContestPaused)
+        {
+            return;
+        }
+
+        var remaining = TimeSpan.FromMilliseconds(
+            Math.Max(0, _settings.ContestPausedRemainingMs));
+        var now = DateTime.UtcNow;
+        _settings.ContestPaused = false;
+        _settings.ContestActive = true;
+        _settings.ContestFinished = false;
+        _settings.ContestPausedRemainingMs = 0;
+        _settings.ContestEndsAtUtc = now.Add(remaining);
+        SettingsService.Save(_settings);
+        _contestTimer.Start();
+        ApplyContestUi();
+        StatusText.Text = "计时已继续";
+        AppendRunLog("课堂计时：已继续。");
+    }
+
+    private async Task EndContestAsync()
+    {
+        if (_settings.ContestActive || _settings.ContestPaused)
+        {
+            _settings.ContestActive = false;
+            _settings.ContestPaused = false;
+            _settings.ContestFinished = true;
+            SettingsService.Save(_settings);
+        }
+
+        _contestTimer.Stop();
+        ApplyContestUi();
+
+        StatusText.Text = ContestSubmissionLocked ? "计时结束，交题已锁定" : "计时结束";
+        AppendRunLog("课堂计时：已交卷。");
+        await ShowContestSummaryAsync();
+    }
+
+    private async void ContestTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_settings.ContestActive)
+        {
+            _contestTimer.Stop();
+            ApplyContestUi();
+            return;
+        }
+
+        var remaining = _settings.ContestEndsAtUtc - DateTime.UtcNow;
+        if (remaining > TimeSpan.Zero)
+        {
+            UpdateContestStatus(remaining);
+            return;
+        }
+
+        _settings.ContestActive = false;
+        _settings.ContestPaused = false;
+        _settings.ContestFinished = true;
+        SettingsService.Save(_settings);
+        _contestTimer.Stop();
+        ApplyContestUi();
+
+        StatusText.Text = ContestSubmissionLocked ? "计时结束，交题已锁定" : "计时结束";
+        AppendRunLog("课堂计时：时间到。");
+
+        if (_contestDialogOpen)
+        {
+            return;
+        }
+
+        await Dialogs.ShowMessageAsync(
+            this,
+            "课堂计时结束",
+            _settings.ContestLockSubmission
+                ? "时间到，在线交题已锁定。\n\n本地编译和测试不受影响。"
+                : "时间到。\n\n在线交题未被锁定。");
+        await ShowContestSummaryAsync();
+    }
+
+    private void ResetContest()
+    {
+        _settings.ContestActive = false;
+        _settings.ContestFinished = false;
+        _settings.ContestPaused = false;
+        _settings.ContestPausedRemainingMs = 0;
+        _settings.ContestStartedAtUtc = default;
+        _settings.ContestEndsAtUtc = default;
+        _settings.ContestTaskId = string.Empty;
+        _settings.ContestTaskName = string.Empty;
+        _settings.ContestTaskSource = AscProblemSource.Bank;
+        SettingsService.Save(_settings);
+
+        _contestTimer.Stop();
+        ApplyContestUi();
+        StatusText.Text = "计时已清除";
+        AppendRunLog("课堂计时：已清除。");
+    }
+
+    private string BuildContestSummary()
+    {
+        var since = _settings.ContestStartedAtUtc;
+        var entries = AscHistoryStore.Load()
+            .Where(entry => since == default || entry.SubmittedAtUtc >= since)
+            .Where(entry => string.IsNullOrWhiteSpace(_settings.ContestTaskId) ||
+                            string.Equals(entry.TaskId, _settings.ContestTaskId, StringComparison.Ordinal))
+            .OrderBy(entry => entry.SubmittedAtUtc)
+            .ToList();
+
+        var builder = new StringBuilder();
+        builder.AppendLine(_settings.ContestTitle);
+        if (since != default)
+        {
+            builder.AppendLine($"开始：{since.ToLocalTime():MM-dd HH:mm:ss}");
+        }
+
+        if (_settings.ContestEndsAtUtc != default)
+        {
+            builder.AppendLine($"计划结束：{_settings.ContestEndsAtUtc.ToLocalTime():HH:mm}");
+        }
+
+        if (_settings.ContestPaused)
+        {
+            builder.AppendLine(
+                "当前状态：已暂停，剩余 " +
+                FormatRemainingText(TimeSpan.FromMilliseconds(_settings.ContestPausedRemainingMs)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_settings.ContestTaskName))
+        {
+            builder.AppendLine($"任务：{_settings.ContestTaskName}");
+        }
+
+        var accepted = entries.Count(entry =>
+            string.Equals(entry.Verdict, "AC", StringComparison.OrdinalIgnoreCase));
+        builder.AppendLine($"提交 {entries.Count} 次 · AC {accepted} 次");
+        builder.AppendLine();
+
+        if (entries.Count == 0)
+        {
+            builder.AppendLine("本次计时期间还没有在线提交记录。");
+        }
+        else
+        {
+            foreach (var entry in entries)
+            {
+                builder.Append(entry.SubmittedAtUtc.ToLocalTime().ToString("HH:mm:ss"))
+                    .Append("  ")
+                    .Append(entry.DisplayId.PadRight(8))
+                    .Append(entry.VerdictText.PadRight(4))
+                    .Append("  ")
+                    .AppendLine(entry.PerformanceText);
+            }
+        }
+
+        return builder.ToString().TrimEnd();
+    }
+
+    private async Task ShowContestSummaryAsync()
+    {
+        await Dialogs.ShowDetailsAsync(this, "比赛结果汇总", BuildContestSummary());
+    }
+
+    private async Task ExportContestSummaryAsync()
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "导出比赛汇总",
+            SuggestedFileName =
+                SanitizeFileName(_settings.ContestTitle, "比赛汇总") +
+                "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".txt",
+            DefaultExtension = "txt",
+            FileTypeChoices = new[]
+            {
+                new FilePickerFileType("文本报告")
+                {
+                    Patterns = new[] { "*.txt" }
+                }
+            }
+        });
+
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var stream = await file.OpenWriteAsync();
+            await using var writer = new StreamWriter(stream, new UTF8Encoding(true));
+            await writer.WriteAsync(BuildContestSummary());
+            StatusText.Text = "比赛汇总已导出";
+            AppendRunLog("课堂计时：汇总已导出到 " + file.Path);
+        }
+        catch (Exception ex)
+        {
+            await Dialogs.ShowMessageAsync(this, "导出汇总失败", ex.Message);
+        }
+    }
+
+    private static string SanitizeFileName(string? value, string fallback)
+    {
+        var text = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+        foreach (var ch in Path.GetInvalidFileNameChars())
+        {
+            text = text.Replace(ch, '_');
+        }
+
+        return text.Length == 0 ? fallback : text;
     }
 
     private void ToggleTheme_Click(object? sender, RoutedEventArgs e)
@@ -2249,7 +3031,7 @@ public partial class MainWindow : Window
         RunButton.IsEnabled = true;
         CompileRunButton.IsEnabled = true;
         RunAllButton.IsEnabled = true;
-        AscSubmitButton.IsEnabled = !_ascSubmissionBusy;
+        RefreshAscSubmitEnabled();
         SelectAllCheckBox.IsEnabled = true;
         StopButton.IsVisible = false;
         StopButton.IsEnabled = true;
@@ -2345,6 +3127,11 @@ public partial class MainWindow : Window
                 searchPanel.IsReplaceMode = true;
                 searchPanel.Open();
             }
+        }
+        else if (control && e.Key == Key.J)
+        {
+            e.Handled = true;
+            await OpenSnippetWindowAsync();
         }
     }
 }

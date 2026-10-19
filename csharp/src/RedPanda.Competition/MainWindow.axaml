@@ -57,10 +57,29 @@
         </StackPanel>
 
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3">
+          <Button Classes="toolbar"
+                  ToolTip.Tip="代码片段 (Ctrl+J)">
+            片段
+            <Button.Flyout>
+              <MenuFlyout Placement="BottomEdgeAlignedRight">
+                <MenuItem Header="插入或管理片段… (Ctrl+J)" Click="Snippets_Click" />
+                <MenuItem Header="把选中代码存为片段…" Click="SaveSelectionAsSnippet_Click" />
+              </MenuFlyout>
+            </Button.Flyout>
+          </Button>
+          <Button x:Name="ContestButton"
+                  Classes="toolbar"
+                  Click="Contest_Click"
+                  ToolTip.Tip="课堂倒计时、交卷与结果汇总">计时</Button>
           <Button x:Name="AscSubmitButton"
                   Classes="toolbar"
                   Click="AscSubmit_Click"
                   ToolTip.Tip="提交当前文件到爱思创（使用本地题目链接，不需要重开爱思创窗口）">交题</Button>
+          <Button x:Name="AscDetailButton"
+                  Classes="toolbar"
+                  IsEnabled="False"
+                  Click="AscDetail_Click"
+                  ToolTip.Tip="查看当前题目上次提交的测试点详情">提交详情</Button>
           <Button Classes="toolbar"
                   Click="Aisichuang_Click"
                   ToolTip.Tip="登录爱思创，获取班级测验/作业与题库题目">爱思创</Button>
@@ -85,6 +104,11 @@
                    TextTrimming="CharacterEllipsis"
                    Margin="0,0,12,0" />
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">
+          <TextBlock x:Name="ContestStatusText"
+                     Classes="hint"
+                     IsVisible="False"
+                     MaxWidth="220"
+                     TextTrimming="CharacterEllipsis" />
           <TextBlock x:Name="AscStatusText"
                      Classes="hint"
                      Text="爱思创：未关联"
