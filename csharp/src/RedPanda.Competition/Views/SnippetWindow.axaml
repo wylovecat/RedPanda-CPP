@@ -1,0 +1,93 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:RedPanda.Competition.Models"
+        x:Class="RedPanda.Competition.Views.SnippetWindow"
+        Title="代码片段"
+        Width="820"
+        Height="560"
+        MinWidth="680"
+        MinHeight="460"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppWindowBrush}"
+        Icon="/AppAssets/redpanda.ico">
+
+  <DockPanel Margin="16">
+
+    <StackPanel DockPanel.Dock="Bottom"
+                Orientation="Horizontal"
+                HorizontalAlignment="Right"
+                Spacing="8"
+                Margin="0,12,0,0">
+      <Button x:Name="InsertButton" Content="插入到光标" Classes="accent" Click="Insert_Click" MinWidth="100" />
+      <Button Content="关闭" Click="Close_Click" MinWidth="80" />
+    </StackPanel>
+
+    <Grid ColumnDefinitions="260,12,*">
+
+      <DockPanel Grid.Column="0">
+        <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,8">
+          <TextBox x:Name="SearchBox"
+                   PlaceholderText="搜索名称、前缀或内容"
+                   TextChanged="SearchBox_TextChanged" />
+          <ComboBox x:Name="CategoryFilterCombo"
+                    HorizontalAlignment="Stretch"
+                    SelectionChanged="CategoryFilter_SelectionChanged" />
+          <Button Content="新建片段" Click="New_Click" HorizontalAlignment="Stretch" />
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+            <Button Content="导入…" Click="Import_Click" HorizontalAlignment="Stretch" />
+            <Button Grid.Column="1" Content="导出…" Click="Export_Click" HorizontalAlignment="Stretch" />
+          </Grid>
+        </StackPanel>
+        <ListBox x:Name="SnippetList"
+                 Background="{DynamicResource PanelAltBrush}"
+                 BorderBrush="{DynamicResource BorderBrush}"
+                 BorderThickness="1"
+                 SelectionChanged="SnippetList_SelectionChanged">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="models:CodeSnippet">
+              <TextBlock Text="{Binding DisplayText}" TextTrimming="CharacterEllipsis" />
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+
+      <Grid Grid.Column="2" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="8">
+        <Grid ColumnDefinitions="60,*" ColumnSpacing="8">
+          <TextBlock Text="名称" VerticalAlignment="Center" />
+          <TextBox Grid.Column="1" x:Name="NameBox" PlaceholderText="例如：线段树" />
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="60,*" ColumnSpacing="8">
+          <TextBlock Text="前缀" VerticalAlignment="Center" />
+          <TextBox Grid.Column="1" x:Name="PrefixBox" PlaceholderText="可选，用于搜索" />
+        </Grid>
+
+        <Grid Grid.Row="2" ColumnDefinitions="60,*" ColumnSpacing="8">
+          <TextBlock Text="分类" VerticalAlignment="Center" />
+          <TextBox Grid.Column="1" x:Name="CategoryBox" PlaceholderText="例如：基础 / 图论" />
+        </Grid>
+
+        <TextBox Grid.Row="3"
+                 x:Name="BodyBox"
+                 AcceptsReturn="True"
+                 TextWrapping="NoWrap"
+                 FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+                 FontSize="12"
+                 Background="{DynamicResource PanelAltBrush}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 PlaceholderText="片段内容（原样插入到编辑器）" />
+
+        <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+          <TextBlock x:Name="StatusText"
+                     Classes="hint"
+                     VerticalAlignment="Center"
+                     Text="修改后点“保存片段”。" />
+          <Button Grid.Column="1" Content="删除" Click="Delete_Click" />
+          <Button Grid.Column="2" Content="保存片段" Click="Save_Click" />
+        </Grid>
+      </Grid>
+
+    </Grid>
+  </DockPanel>
+</Window>
