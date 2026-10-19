@@ -101,6 +101,9 @@ public static class ToolchainLocator
 
         yield return Path.Combine(AppContext.BaseDirectory, "MinGW64", "bin");
         yield return Path.Combine(AppContext.BaseDirectory, "mingw64", "bin");
+        yield return Path.Combine(AppContext.BaseDirectory, "tools", "MinGW64", "bin");
+        yield return Path.Combine(AppContext.BaseDirectory, "tools", "mingw64", "bin");
+        yield return Path.Combine(AppContext.BaseDirectory, "compiler", "mingw64", "bin");
 
         DriveInfo[] drives;
         try

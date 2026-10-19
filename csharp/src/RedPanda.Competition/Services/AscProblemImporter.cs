@@ -3,6 +3,12 @@ using RedPanda.Competition.Models;
 
 namespace RedPanda.Competition.Services;
 
+public sealed record AscProblemPaths(
+    string Folder,
+    string Stem,
+    string SourcePath,
+    string StatementPath);
+
 public static class AscProblemImporter
 {
     private static readonly Regex ForbiddenNameChars = new("[\\\\/:*?\"<>|\\r\\n\\t]", RegexOptions.Compiled);
@@ -23,13 +29,10 @@ public static class AscProblemImporter
         return Path.Combine(documents, "RedPandaCP", "Aisichuang");
     }
 
-    public static AscImportResult Import(
-        AscStatement statement,
-        AscProblemRef problem,
+    public static AscProblemPaths ResolvePaths(
+        string displayId,
         AscProblemSource source,
         AscTaskInfo? task,
-        string? classId,
-        string? className,
         AscSettings settings)
     {
         var root = ResolveRoot(settings);
@@ -45,15 +48,85 @@ public static class AscProblemImporter
             _ => Path.Combine(root, "题库")
         };
 
-        Directory.CreateDirectory(folder);
+        var stem = SanitizeName(displayId, "problem");
+        return new AscProblemPaths(
+            folder,
+            stem,
+            Path.Combine(folder, stem + ".cpp"),
+            Path.Combine(folder, stem + ".md"));
+    }
 
+    /// <summary>
+    /// Finds an already imported problem so weak network conditions do not
+    /// force a re-download. The source file must exist; its link may be
+    /// inferred from the file name (A1131.cpp) when the sidecar was lost.
+    /// </summary>
+    public static AscImportResult? TryOpenLocal(
+        string displayId,
+        string title,
+        AscProblemSource source,
+        AscTaskInfo? task,
+        string? classId,
+        string? className,
+        AscSettings settings)
+    {
+        var paths = ResolvePaths(displayId, source, task, settings);
+        if (!File.Exists(paths.SourcePath))
+        {
+            return null;
+        }
+
+        var link = AscLinkStore.Load(paths.SourcePath) ??
+                   AscLinkStore.LoadOrInfer(paths.SourcePath);
+        if (link is null)
+        {
+            return null;
+        }
+
+        link.DisplayId = string.IsNullOrWhiteSpace(link.DisplayId) ? displayId : link.DisplayId;
+        link.Title = string.IsNullOrWhiteSpace(link.Title) ? title : link.Title;
+        link.Source = source;
+        if (task is not null)
+        {
+            link.TaskId = task.TaskId;
+            link.TaskName = task.TaskName;
+        }
+
+        link.ClassId = classId ?? link.ClassId;
+        link.ClassName = className ?? link.ClassName;
+
+        var cases = TestCaseStore.Load(paths.SourcePath, out _);
+        return new AscImportResult
+        {
+            SourcePath = paths.SourcePath,
+            StatementPath = paths.StatementPath,
+            Link = link,
+            TestCases = cases,
+            CreatedSource = false,
+            CreatedTests = false
+        };
+    }
+
+    public static AscImportResult Import(
+        AscStatement statement,
+        AscProblemRef problem,
+        AscProblemSource source,
+        AscTaskInfo? task,
+        string? classId,
+        string? className,
+        AscSettings settings)
+    {
         var displayId = !string.IsNullOrWhiteSpace(statement.DisplayId)
             ? statement.DisplayId
             : problem.DisplayId;
-        var stem = SanitizeName(displayId, "problem");
+        var paths = ResolvePaths(displayId, source, task, settings);
+        var folder = paths.Folder;
+        var stem = paths.Stem;
+        var sourcePath = paths.SourcePath;
+        var statementPath = paths.StatementPath;
 
-        var sourcePath = Path.Combine(folder, stem + ".cpp");
-        var statementPath = Path.Combine(folder, stem + ".md");
+        Directory.CreateDirectory(folder);
+
         var createdSource = !File.Exists(sourcePath);
 
         if (createdSource)
@@ -64,6 +137,7 @@ public static class AscProblemImporter
         var cases = BuildTestCases(statement);
         var sidecarPath = TestCaseStore.GetSidecarPath(sourcePath);
         var createdTests = !File.Exists(sidecarPath);
+        var samplesFilled = false;
 
         if (createdTests)
         {
@@ -74,7 +148,24 @@ public static class AscProblemImporter
             var loaded = TestCaseStore.Load(sourcePath, out var error);
             if (error is null && loaded.Count > 0)
             {
-                cases = loaded;
+                if (statement.Samples.Count > 0 && IsPlaceholderSuite(loaded))
+                {
+                    // The offline import wrote one empty placeholder case. Once
+                    // the network comes back, replace only that placeholder and
+                    // leave any user-authored cases alone.
+                    cases = BuildTestCases(statement);
+                    TestCaseStore.Save(sourcePath, cases);
+                    samplesFilled = true;
+                }
+                else
+                {
+                    cases = loaded;
+                }
+            }
+            else
+            {
+                TestCaseStore.Save(sourcePath, cases);
+                createdTests = true;
             }
         }
 
@@ -111,8 +202,17 @@ public static class AscProblemImporter
             Link = link,
             TestCases = cases,
             CreatedSource = createdSource,
-            CreatedTests = createdTests
+            CreatedTests = createdTests,
+            SamplesFilled = samplesFilled
         };
+    }
+
+    private static bool IsPlaceholderSuite(IReadOnlyList<TestCase> cases)
+    {
+        return cases.All(testCase =>
+            string.IsNullOrWhiteSpace(testCase.Input) &&
+            string.IsNullOrWhiteSpace(testCase.ExpectedOutput) &&
+            testCase.Name.StartsWith("样例", StringComparison.Ordinal));
     }
 
     public static string SanitizeName(string? name, string fallback)

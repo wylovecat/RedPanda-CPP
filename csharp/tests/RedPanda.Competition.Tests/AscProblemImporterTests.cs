@@ -127,6 +127,138 @@ public sealed class AscProblemImporterTests
     }
 
     [Fact]
+    public void Import_FillsOfflinePlaceholderWithoutOverwritingUserCases()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var settings = new AscSettings { TaskRootDir = directory };
+            var problem = new AscProblemRef { DisplayId = "A1131", ProblemId = "123", Title = "加法" };
+            var offline = new AscStatement
+            {
+                DisplayId = "A1131",
+                ProblemId = "123",
+                Title = "加法",
+                TimeLimitMs = 1000,
+                MemoryLimitMb = 256
+            };
+
+            var first = AscProblemImporter.Import(
+                offline, problem, AscProblemSource.Bank, null, null, null, settings);
+
+            Assert.Single(first.TestCases);
+            Assert.True(string.IsNullOrEmpty(first.TestCases[0].Input));
+
+            var online = Statement("A1131", "加法", "2 3\n", "5\n");
+            var second = AscProblemImporter.Import(
+                online, problem, AscProblemSource.Bank, null, null, null, settings);
+
+            Assert.True(second.SamplesFilled);
+            Assert.Single(second.TestCases);
+            Assert.Equal("2 3\n", second.TestCases[0].Input);
+            Assert.Equal("5\n", second.TestCases[0].ExpectedOutput);
+
+            var custom = new List<TestCase>
+            {
+                new() { Name = "我的用例", Input = "9 9\n", ExpectedOutput = "18\n" }
+            };
+            TestCaseStore.Save(second.SourcePath, custom);
+
+            var third = AscProblemImporter.Import(
+                online, problem, AscProblemSource.Bank, null, null, null, settings);
+
+            Assert.False(third.SamplesFilled);
+            Assert.Single(third.TestCases);
+            Assert.Equal("我的用例", third.TestCases[0].Name);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryOpenLocal_ReusesSourceAndTestsWithoutNetwork()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var settings = new AscSettings { TaskRootDir = directory };
+            var statement = Statement("A1131", "加法", "2 3\n", "5\n");
+            var problem = new AscProblemRef { DisplayId = "A1131", ProblemId = "123", Title = "加法" };
+
+            var imported = AscProblemImporter.Import(
+                statement, problem, AscProblemSource.Bank, null, null, null, settings);
+
+            File.WriteAllText(imported.SourcePath, "// kept");
+            var opened = AscProblemImporter.TryOpenLocal(
+                "A1131", "加法", AscProblemSource.Bank, null, null, null, settings);
+
+            Assert.NotNull(opened);
+            Assert.Equal(imported.SourcePath, opened!.SourcePath);
+            Assert.Equal(imported.StatementPath, opened.StatementPath);
+            Assert.False(opened.CreatedSource);
+            Assert.False(opened.CreatedTests);
+            Assert.Equal("// kept", File.ReadAllText(opened.SourcePath));
+            Assert.Single(opened.TestCases);
+            Assert.Equal("123", opened.Link.ProblemId);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryOpenLocal_InfersLinkFromFileNameWhenSidecarIsMissing()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var settings = new AscSettings { TaskRootDir = directory };
+            var statement = Statement("A1131", "加法", "2 3\n", "5\n");
+            var problem = new AscProblemRef { DisplayId = "A1131", ProblemId = "123", Title = "加法" };
+
+            var imported = AscProblemImporter.Import(
+                statement, problem, AscProblemSource.Bank, null, null, null, settings);
+            File.Delete(AscLinkStore.PathFor(imported.SourcePath));
+
+            var opened = AscProblemImporter.TryOpenLocal(
+                "A1131", "加法", AscProblemSource.Bank, null, null, null, settings);
+
+            Assert.NotNull(opened);
+            Assert.Equal("A1131", opened!.Link.DisplayId);
+            Assert.Equal("加法", opened.Link.Title);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryOpenLocal_ReturnsNullWhenSourceDoesNotExist()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var settings = new AscSettings { TaskRootDir = directory };
+            var opened = AscProblemImporter.TryOpenLocal(
+                "A9999", "missing", AscProblemSource.Bank, null, null, null, settings);
+
+            Assert.Null(opened);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SanitizeName_ReplacesForbiddenCharactersAndFallsBack()
     {
         Assert.Equal("A_B_C", AscProblemImporter.SanitizeName("A/B:C", "x"));
